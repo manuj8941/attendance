@@ -1,0 +1,8 @@
+attendance records should have total time worked (hours and minutes) in a day. 
+admin (both) be able to add new users with initial 111 password
+admin (both) be able to reset password of all users to 111 anytime
+users (including both admins) be able to change password
+
+
+
+

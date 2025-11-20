@@ -16,11 +16,12 @@ if ( !fs.existsSync( selfiesDir ) )
 }
 
 const users = [
-    { name: 'smita', password: 'theory', role: 'owner_admin' },
-    { name: 'dinesh', password: 'theory', role: 'employee_admin' },
-    { name: 'abdul', password: 'dharma', role: 'employee' },
-    { name: 'suresh', password: 'iloveyou', role: 'employee' },
-    { name: 'mahesh', password: 'password123', role: 'employee' }
+    { name: 'smita', password: '111', role: 'owner_admin' },
+    { name: 'dinesh', password: '111', role: 'employee_admin' },
+    { name: 'manuj', password: '111', role: 'employee' },
+    { name: 'atul', password: '111', role: 'employee' },
+    { name: 'kamini', password: '111', role: 'employee' },
+    { name: 'nazmul', password: '111', role: 'employee' }
 ];
 
 users.forEach( user =>
@@ -54,8 +55,8 @@ const db = new sqlite3.Database( './attendance.db', ( err ) =>
 
 db.serialize( () =>
 {
-    // Users table with roles, leave balance, and last update timestamp
-    db.run( 'CREATE TABLE IF NOT EXISTS users (name TEXT PRIMARY KEY, password TEXT, role TEXT, leave_balance REAL DEFAULT 0, leave_balance_last_updated TEXT)', ( err ) =>
+    // Users table with roles, leave balance, last update timestamp, and join date
+    db.run( 'CREATE TABLE IF NOT EXISTS users (name TEXT PRIMARY KEY, password TEXT, role TEXT, leave_balance REAL DEFAULT 0, leave_balance_last_updated TEXT, join_date TEXT DEFAULT \'2025-01-01\')', ( err ) =>
     {
         if ( err )
         {
@@ -65,12 +66,13 @@ db.serialize( () =>
         // Add new columns if they don't exist. This is for existing databases.
         db.run( "ALTER TABLE users ADD COLUMN leave_balance REAL DEFAULT 0", () => { } );
         db.run( "ALTER TABLE users ADD COLUMN leave_balance_last_updated TEXT", () => { } );
+        db.run( "ALTER TABLE users ADD COLUMN join_date TEXT DEFAULT \'2025-01-01\'", () => { } );
     } );
 
-    const stmtUsers = db.prepare( 'INSERT OR IGNORE INTO users (name, password, role) VALUES (?, ?, ?)' );
+    const stmtUsers = db.prepare( 'INSERT OR IGNORE INTO users (name, password, role, join_date) VALUES (?, ?, ?, ?)' );
     users.forEach( user =>
     {
-        stmtUsers.run( user.name, user.password, user.role );
+        stmtUsers.run( user.name, user.password, user.role, '2025-01-01' ); // Default join_date for all users
     } );
     stmtUsers.finalize();
 
@@ -97,6 +99,27 @@ db.serialize( () =>
         status TEXT DEFAULT 'pending',
         approved_by TEXT
     )`);
+
+    // --- SERVER STARTUP LEAVE ACCRUAL ---
+    db.all( 'SELECT name, join_date, leave_balance, leave_balance_last_updated FROM users WHERE role != ?', [ 'owner_admin' ], async ( err, employees ) =>
+    {
+        if ( err )
+        {
+            console.error( 'Error fetching employees for startup accrual:', err.message );
+            return;
+        }
+        for ( const employee of employees )
+        {
+            try
+            {
+                await accrueLeavesForUserOnStartup( employee );
+            } catch ( error )
+            {
+                console.error( `Error during startup leave accrual for ${ employee.name }:`, error.message );
+            }
+        }
+        console.log( 'Initial leave accrual on startup completed.' );
+    } );
 } );
 
 // --- HELPER FUNCTIONS ---
@@ -118,44 +141,66 @@ function formatDateForDisplay ( date )
     return moment( date, 'YYYY-MM-DD' ).format( 'DD-MMMM-YYYY' );
 }
 
-// --- LEAVE BALANCE CALCULATION ---
-async function calculateAndUpdateLeaveBalance(username) {
-    return new Promise((resolve, reject) => {
-        db.get('SELECT leave_balance, leave_balance_last_updated FROM users WHERE name = ?', [username], (err, user) => {
-            if (err) return reject(err);
-            if (!user) return reject(new Error('User not found'));
+// --- LEAVE ACCRUAL LOGIC (ON STARTUP) ---
+async function accrueLeavesForUserOnStartup ( employee )
+{
+    return new Promise( ( resolve, reject ) =>
+    {
+        const now = moment();
+        const joinDate = moment( employee.join_date, 'YYYY-MM-DD' );
+        let lastAccrualMonth = employee.leave_balance_last_updated ? moment( employee.leave_balance_last_updated, 'YYYY-MM' ) : joinDate.clone().startOf( 'month' );
+        let currentBalance = parseFloat( employee.leave_balance ) || 0;
 
-            const now = moment();
-            let lastUpdated = user.leave_balance_last_updated ? moment(user.leave_balance_last_updated, 'YYYY-MM') : null;
-            let balance = user.leave_balance;
+        let monthsToAccrue = 0;
+        let tempMonth = lastAccrualMonth.clone();
 
-            // If lastUpdated is null, it's the first time. Initialize balance.
-            if (lastUpdated === null) {
-                balance = 2; // Initial balance
-                lastUpdated = now;
-                db.run('UPDATE users SET leave_balance = ?, leave_balance_last_updated = ? WHERE name = ?',
-                    [balance, lastUpdated.format('YYYY-MM'), username],
-                    (updateErr) => {
-                        if (updateErr) return reject(updateErr);
-                        resolve(balance);
-                    });
-            } else {
-                const monthsDiff = now.diff(lastUpdated, 'months');
-
-                if (monthsDiff > 0) {
-                    balance += monthsDiff * 2;
-                    db.run('UPDATE users SET leave_balance = ?, leave_balance_last_updated = ? WHERE name = ?',
-                        [balance, now.format('YYYY-MM'), username],
-                        (updateErr) => {
-                            if (updateErr) return reject(updateErr);
-                            resolve(balance);
-                        });
-                } else {
-                    resolve(balance);
-                }
+        // Accrue for months since join_date or last_accrual_month up to the current month
+        while ( tempMonth.isBefore( now, 'month' ) || tempMonth.isSame( now, 'month' ) )
+        {
+            // Ensure we don't double count the current month if already accrued
+            if ( tempMonth.isSame( now, 'month' ) && employee.leave_balance_last_updated && moment( employee.leave_balance_last_updated, 'YYYY-MM' ).isSame( now, 'month' ) )
+            {
+                break; // Already accrued for the current month
             }
-        });
-    });
+            // Accrue only if the month is after or same as join_date
+            if ( tempMonth.isSameOrAfter( joinDate, 'month' ) )
+            {
+                monthsToAccrue++;
+            }
+            tempMonth.add( 1, 'month' );
+        }
+
+        if ( monthsToAccrue > 0 )
+        {
+            currentBalance += monthsToAccrue * 2;
+            const newLastAccrualMonth = now.format( 'YYYY-MM' );
+            db.run( 'UPDATE users SET leave_balance = ?, leave_balance_last_updated = ? WHERE name = ?',
+                [ currentBalance, newLastAccrualMonth, employee.name ],
+                ( updateErr ) =>
+                {
+                    if ( updateErr ) return reject( updateErr );
+                    console.log( `Accrued ${ monthsToAccrue * 2 } leaves for ${ employee.name }. New balance: ${ currentBalance }` );
+                    resolve( currentBalance );
+                } );
+        } else
+        {
+            resolve( currentBalance );
+        }
+    } );
+}
+
+// --- LEAVE BALANCE CALCULATION (READ ONLY) ---
+async function calculateAndUpdateLeaveBalance ( username )
+{
+    return new Promise( ( resolve, reject ) =>
+    {
+        db.get( 'SELECT leave_balance FROM users WHERE name = ?', [ username ], ( err, user ) =>
+        {
+            if ( err ) return reject( err );
+            if ( !user ) return reject( new Error( 'User not found' ) );
+            resolve( parseFloat( user.leave_balance ) || 0 );
+        } );
+    } );
 }
 
 // --- AUTHENTICATION & MIDDLEWARE ---
@@ -184,7 +229,19 @@ function requireAdmin ( req, res, next )
 // --- GENERAL & LOGIN ROUTES ---
 app.get( '/', ( req, res ) =>
 {
-    res.sendFile( path.join( __dirname, 'login.html' ) );
+    if ( req.session.user )
+    {
+        if ( req.session.user.role === 'owner_admin' )
+        {
+            res.redirect( '/admin' );
+        } else
+        {
+            res.redirect( '/dashboard' );
+        }
+    } else
+    {
+        res.sendFile( path.join( __dirname, 'login.html' ) );
+    }
 } );
 
 app.post( '/login', ( req, res ) =>
@@ -324,19 +381,19 @@ app.post( '/leaves/apply', requireLogin, async ( req, res ) =>
 
         if ( balance < leaveDuration )
         {
-            return res.status( 400 ).send( 'Insufficient leave balance.' );
+            return res.status( 400 ).json( { success: false, message: 'Insufficient leave balance.' } );
         }
 
         db.run( 'INSERT INTO leaves (username, start_date, end_date, reason) VALUES (?, ?, ?, ?)',
             [ username, start_date, end_date, reason ], function ( err )
         {
-            if ( err ) return res.status( 500 ).send( 'Error applying for leave.' );
+            if ( err ) return res.status( 500 ).json( { success: false, message: 'Error applying for leave.' } );
             console.log( `${ username } applied for leave from ${ moment( start_date, 'YYYY-MM-DD' ).format( 'DD-MMMM-YYYY' ) } to ${ moment( end_date, 'YYYY-MM-DD' ).format( 'DD-MMMM-YYYY' ) }` );
-            res.redirect( '/dashboard' );
+            res.status( 200 ).json( { success: true, message: 'Leave applied successfully.' } );
         } );
     } catch ( error )
     {
-        res.status( 500 ).send( error.message );
+        res.status( 500 ).json( { success: false, message: error.message } );
     }
 } );
 

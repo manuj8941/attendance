@@ -51,10 +51,76 @@
             .status-rejected {
                 color: red;
             }
+
+            /* Modal styles */
+            .modal {
+                display: none; /* Hidden by default */
+                position: fixed; /* Stay in place */
+                z-index: 1; /* Sit on top */
+                left: 0;
+                top: 0;
+                width: 100%; /* Full width */
+                height: 100%; /* Full height */
+                overflow: auto; /* Enable scroll if needed */
+                background-color: rgba(0,0,0,0.4); /* Black w/ opacity */
+            }
+
+            .modal-content {
+                background-color: #fefefe;
+                margin: 15% auto; /* 15% from the top and centered */
+                padding: 20px;
+                border: 1px solid #888;
+                width: 80%; /* Could be more or less, depending on screen size */
+                max-width: 500px;
+                border-radius: 8px;
+                text-align: center;
+                position: relative;
+            }
+
+            .close-button {
+                color: #aaa;
+                float: right;
+                font-size: 28px;
+                font-weight: bold;
+                cursor: pointer;
+            }
+
+            .close-button:hover,
+            .close-button:focus {
+                color: black;
+                text-decoration: none;
+                cursor: pointer;
+            }
+
+            #modal-ok-button {
+                background-color: #4CAF50;
+                color: white;
+                padding: 10px 20px;
+                border: none;
+                border-radius: 5px;
+                cursor: pointer;
+                margin-top: 15px;
+            }
+
+            #modal-ok-button:hover {
+                background-color: #45a049;
+            }
         </style>
     </head>
 
     <body>
+        <div id="message-container"></div>
+
+        <!-- Modal Overlay -->
+        <div id="myModal" class="modal">
+            <!-- Modal content -->
+            <div class="modal-content">
+                <span class="close-button">&times;</span>
+                <p id="modal-message"></p>
+                <button id="modal-ok-button">Okay</button>
+            </div>
+        </div>
+
         <div class="container">
             <h1>Dashboard</h1>
             <p>Welcome, <strong id="user-name"></strong>! | <a href="/logout">Logout</a><span
@@ -90,7 +156,7 @@
                     <p>Current Balance: <strong id="leave-balance">Loading...</strong></p>
                 </div>
                 <hr>
-                <form action="/leaves/apply" method="post">
+                <form id="leave-application-form" action="/leaves/apply" method="post">
                     <h3>Apply for Leave</h3>
                     <label for="start_date">Start Date:</label>
                     <input type="date" id="start_date" name="start_date" required>
@@ -283,6 +349,68 @@
                 const { balance } = await res.json();
                 document.getElementById( 'leave-balance' ).textContent = balance;
             }
+
+            // Modal Logic
+            const modal = document.getElementById('myModal');
+            const modalMessage = document.getElementById('modal-message');
+            const modalOkButton = document.getElementById('modal-ok-button');
+            const closeButton = document.querySelector('.close-button');
+
+            function showModal(message, type) {
+                modalMessage.textContent = message;
+                // Optional: Add classes for styling success/error messages
+                modalMessage.className = type === 'success' ? 'modal-success' : 'modal-error';
+                modal.style.display = 'block';
+            }
+
+            function hideModal() {
+                modal.style.display = 'none';
+            }
+
+            closeButton.addEventListener('click', hideModal);
+            modalOkButton.addEventListener('click', hideModal);
+            window.addEventListener('click', (event) => {
+                if (event.target == modal) {
+                    hideModal();
+                }
+            });
+
+            document.addEventListener('DOMContentLoaded', () => {
+                const leaveForm = document.getElementById('leave-application-form');
+
+                if (leaveForm) {
+                    leaveForm.addEventListener('submit', async (event) => {
+                        event.preventDefault(); // Prevent default form submission
+
+                        const formData = new FormData(leaveForm);
+                        const data = Object.fromEntries(formData.entries());
+
+                        try {
+                            const response = await fetch('/leaves/apply', {
+                                method: 'POST',
+                                headers: {
+                                    'Content-Type': 'application/json'
+                                },
+                                body: JSON.stringify(data)
+                            });
+
+                            const result = await response.json();
+
+                            if (result.success) {
+                                showModal(result.message, 'success');
+                                leaveForm.reset(); // Clear the form on success
+                                loadLeaveBalance(); // Refresh leave balance
+                                loadLeaveHistory(); // Refresh leave history
+                            } else {
+                                showModal(result.message, 'error');
+                            }
+                        } catch (error) {
+                            console.error('Error applying for leave:', error);
+                            showModal('An unexpected error occurred.', 'error');
+                        }
+                    });
+                }
+            });
         </script>
     </body>
 
