@@ -427,8 +427,22 @@ app.post( '/leaves/apply', requireLogin, async ( req, res ) =>
             return res.status( 400 ).json( { success: false, message: 'You do not have enough leave balance for the requested dates.' } );
         }
 
+        // Validate reason: required and max 250 characters (including spaces)
+        const reasonText = ( reason || '' ).toString().trim();
+        if ( !reasonText )
+        {
+            return res.status( 400 ).json( { success: false, message: 'Please provide a reason for the leave (max 250 characters).' } );
+        }
+        if ( reasonText.length > 250 )
+        {
+            return res.status( 400 ).json( { success: false, message: 'Reason cannot exceed 250 characters.' } );
+        }
+
+        // Store the validated reason (safety: ensure max 250 stored)
+        const storedReason = reasonText.substring( 0, 250 );
+
         db.run( 'INSERT INTO leaves (username, start_date, end_date, reason) VALUES (?, ?, ?, ?)',
-            [ username, start_date, end_date, reason ], function ( err )
+            [ username, start_date, end_date, storedReason ], function ( err )
         {
             if ( err ) return res.status( 500 ).json( { success: false, message: 'We could not submit your leave request. Please try again later.' } );
             console.log( `${ username } applied for leave from ${ moment( start_date, 'YYYY-MM-DD' ).format( 'DD-MMMM-YYYY' ) } to ${ moment( end_date, 'YYYY-MM-DD' ).format( 'DD-MMMM-YYYY' ) }` );
@@ -445,11 +459,18 @@ app.get( '/leaves', requireLogin, ( req, res ) =>
     db.all( 'SELECT * FROM leaves WHERE username = ? ORDER BY start_date DESC', [ req.session.user.name ], ( err, rows ) =>
     {
         if ( err ) return res.status( 500 ).json( { error: err.message } );
-        const formattedRows = rows.map( row => ( {
-            ...row,
-            start_date: formatDateForDisplay( row.start_date ),
-            end_date: formatDateForDisplay( row.end_date )
-        } ) );
+        const formattedRows = rows.map( row =>
+        {
+            const fullReason = row.reason || '';
+            const truncated = fullReason.length > 25 ? fullReason.substring( 0, 25 ) + '...' : fullReason;
+            return {
+                ...row,
+                start_date: formatDateForDisplay( row.start_date ),
+                end_date: formatDateForDisplay( row.end_date ),
+                reason_truncated: truncated,
+                reason_full: fullReason
+            };
+        } );
         res.json( formattedRows );
     } );
 } );
@@ -561,11 +582,18 @@ app.get( '/admin/leaves', requireAdmin, ( req, res ) =>
             filteredRows = rows.filter( row => row.role === 'employee' );
         }
 
-        const formattedRows = filteredRows.map( row => ( {
-            ...row,
-            start_date: formatDateForDisplay( row.start_date ),
-            end_date: formatDateForDisplay( row.end_date )
-        } ) );
+        const formattedRows = filteredRows.map( row =>
+        {
+            const fullReason = row.reason || '';
+            const truncated = fullReason.length > 25 ? fullReason.substring( 0, 25 ) + '...' : fullReason;
+            return {
+                ...row,
+                start_date: formatDateForDisplay( row.start_date ),
+                end_date: formatDateForDisplay( row.end_date ),
+                reason_truncated: truncated,
+                reason_full: fullReason
+            };
+        } );
 
         res.json( formattedRows );
     } );
@@ -576,11 +604,18 @@ app.get( '/admin/leaves/history', requireAdmin, ( req, res ) =>
     db.all( "SELECT * FROM leaves ORDER BY start_date DESC", [], ( err, rows ) =>
     {
         if ( err ) return res.status( 500 ).json( { error: err.message } );
-        const formattedRows = rows.map( row => ( {
-            ...row,
-            start_date: formatDateForDisplay( row.start_date ),
-            end_date: formatDateForDisplay( row.end_date )
-        } ) );
+        const formattedRows = rows.map( row =>
+        {
+            const fullReason = row.reason || '';
+            const truncated = fullReason.length > 25 ? fullReason.substring( 0, 25 ) + '...' : fullReason;
+            return {
+                ...row,
+                start_date: formatDateForDisplay( row.start_date ),
+                end_date: formatDateForDisplay( row.end_date ),
+                reason_truncated: truncated,
+                reason_full: fullReason
+            };
+        } );
         res.json( formattedRows );
     } );
 } );

@@ -179,7 +179,8 @@
                     <input type="date" id="end_date" name="end_date" required>
                     <br><br>
                     <label for="reason">Reason:</label>
-                    <textarea id="reason" name="reason" rows="3" cols="40" required></textarea>
+                    <textarea id="reason" name="reason" rows="3" cols="40" maxlength="250" required></textarea>
+                    <div style="font-size:12px;color:#666">Maximum 250 characters.</div>
                     <br><br>
                     <button type="submit">Submit Leave Request</button>
                 </form>
@@ -365,10 +366,20 @@
                 leaves.forEach( leave =>
                 {
                     const tr = document.createElement( 'tr' );
+                    // Render truncated reason (25 chars) with clickable link to view full reason in modal
+                    const reasonPreview = leave.reason_truncated || ( leave.reason || '' );
+                    const fullReason = leave.reason_full || ( leave.reason || '' );
+                    // If server-sent preview already ends with '...', remove it before adding a single link
+                    let previewForDisplay = reasonPreview;
+                    if ( previewForDisplay && previewForDisplay.endsWith( '...' ) ) previewForDisplay = previewForDisplay.slice( 0, -3 );
+                    const reasonHtml = fullReason && fullReason.length > 25
+                        ? `${ escapeHtml( previewForDisplay ) } <a href="#" class="show-reason" data-full="${ escapeHtmlAttr( fullReason ) }">...</a>`
+                        : escapeHtml( previewForDisplay );
+
                     tr.innerHTML = `
                     <td>${ leave.start_date }</td>
                     <td>${ leave.end_date }</td>
-                    <td>${ leave.reason }</td>
+                    <td>${ reasonHtml }</td>
                     <td class="status-${ leave.status }">${ leave.status }</td>
                     <td>${ leave.approved_by || '' }</td>
                 `;
@@ -376,6 +387,30 @@
                 } );
             }
 
+
+            // Utility: escape HTML to prevent injection
+            function escapeHtml ( str )
+            {
+                if ( !str ) return '';
+                return str.replace( /&/g, '&amp;' ).replace( /</g, '&lt;' ).replace( />/g, '&gt;' ).replace( /"/g, '&quot;' ).replace( /'/g, '&#39;' );
+            }
+
+            function escapeHtmlAttr ( str )
+            {
+                return escapeHtml( str ).replace( /"/g, '&quot;' );
+            }
+
+            // Delegate click for reason preview links
+            document.addEventListener( 'click', ( e ) =>
+            {
+                const target = e.target;
+                if ( target && target.classList && target.classList.contains( 'show-reason' ) )
+                {
+                    e.preventDefault();
+                    const full = target.getAttribute( 'data-full' ) || '';
+                    showModal( full, 'info' );
+                }
+            } );
             async function loadLeaveBalance ()
             {
                 const res = await fetch( '/leaves/balance' );

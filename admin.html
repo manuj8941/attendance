@@ -295,11 +295,20 @@
                 leaves.forEach( leave =>
                 {
                     const tr = document.createElement( 'tr' );
+                    const reasonPreview = leave.reason_truncated || ( leave.reason || '' );
+                    const fullReason = leave.reason_full || ( leave.reason || '' );
+                    // Remove server-provided ellipsis if present, so only one '...' link appears
+                    let previewForDisplay = reasonPreview;
+                    if ( previewForDisplay && previewForDisplay.endsWith( '...' ) ) previewForDisplay = previewForDisplay.slice( 0, -3 );
+                    const reasonHtml = fullReason && fullReason.length > 25
+                        ? `${ escapeHtml( previewForDisplay ) } <a href="#" class="show-reason" data-full="${ escapeHtmlAttr( fullReason ) }">...</a>`
+                        : escapeHtml( previewForDisplay );
+
                     tr.innerHTML = `
                     <td>${ leave.username }</td>
                     <td>${ leave.start_date }</td>
                     <td>${ leave.end_date }</td>
-                    <td>${ leave.reason }</td>
+                    <td>${ reasonHtml }</td>
                     <td>
                         <button class="approve-btn" onclick="handleLeaveAction(${ leave.leave_id }, 'approved')">Approve</button>
                         <button class="reject-btn" onclick="handleLeaveAction(${ leave.leave_id }, 'rejected')">Reject</button>
@@ -323,11 +332,17 @@
                 leaves.forEach( leave =>
                 {
                     const tr = document.createElement( 'tr' );
+                    const reasonPreview = leave.reason_truncated || ( leave.reason || '' );
+                    const fullReason = leave.reason_full || ( leave.reason || '' );
+                    const reasonHtml = fullReason && fullReason.length > 25
+                        ? `${ escapeHtml( reasonPreview ) } <a href="#" class="show-reason" data-full="${ escapeHtmlAttr( fullReason ) }">...</a>`
+                        : escapeHtml( reasonPreview );
+
                     tr.innerHTML = `
                     <td>${ leave.username }</td>
                     <td>${ leave.start_date }</td>
                     <td>${ leave.end_date }</td>
-                    <td>${ leave.reason }</td>
+                    <td>${ reasonHtml }</td>
                     <td class="status-${ leave.status }">${ leave.status }</td>
                     <td>${ leave.approved_by || '' }</td>
                 `;
@@ -335,6 +350,30 @@
                 } );
             }
 
+
+            // Simple HTML escaping helpers
+            function escapeHtml ( str )
+            {
+                if ( !str ) return '';
+                return str.replace( /&/g, '&amp;' ).replace( /</g, '&lt;' ).replace( />/g, '&gt;' ).replace( /"/g, '&quot;' ).replace( /'/g, '&#39;' );
+            }
+
+            function escapeHtmlAttr ( str )
+            {
+                return escapeHtml( str ).replace( /"/g, '&quot;' );
+            }
+
+            // Delegate click for show-reason links (use shared showAppModal)
+            document.addEventListener( 'click', ( e ) =>
+            {
+                const target = e.target;
+                if ( target && target.classList && target.classList.contains( 'show-reason' ) )
+                {
+                    e.preventDefault();
+                    const full = target.getAttribute( 'data-full' ) || '';
+                    if ( window.showAppModal ) window.showAppModal( full, 'info' );
+                }
+            } );
             async function handleLeaveAction ( leave_id, status )
             {
                 await fetch( '/admin/leaves/action', {
