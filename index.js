@@ -4,6 +4,8 @@ const path = require( 'path' );
 const session = require( 'express-session' );
 const fs = require( 'fs' );
 const moment = require( 'moment' );
+const bcrypt = require( 'bcryptjs' );
+const SALT_ROUNDS = 10;
 
 const app = express();
 const port = 3000;
@@ -74,7 +76,15 @@ db.serialize( () =>
     const stmtUsers = db.prepare( 'INSERT OR IGNORE INTO users (name, password, role, join_date) VALUES (?, ?, ?, ?)' );
     users.forEach( user =>
     {
-        stmtUsers.run( user.name, user.password, user.role, '2025-01-01' ); // Default join_date for all users
+        try
+        {
+            const pwdHash = bcrypt.hashSync( ( user.password || '' ).toString(), SALT_ROUNDS );
+            stmtUsers.run( user.name, pwdHash, user.role, '2025-01-01' ); // Default join_date for all users
+        } catch ( e )
+        {
+            console.error( 'Error hashing seed password for', user.name, e );
+            stmtUsers.run( user.name, user.password, user.role, '2025-01-01' );
+        }
     } );
     stmtUsers.finalize();
 
@@ -251,13 +261,8 @@ app.get( '/', ( req, res ) =>
 {
     if ( req.session.user )
     {
-        if ( req.session.user.role === 'owner_admin' )
-        {
-            res.redirect( '/admin' );
-        } else
-        {
-            res.redirect( '/dashboard' );
-        }
+        // Always send logged-in users to the unified dashboard route
+        res.redirect( '/dashboard' );
     } else
     {
         res.sendFile( path.join( __dirname, 'login.html' ) );
@@ -267,27 +272,21 @@ app.get( '/', ( req, res ) =>
 app.post( '/login', ( req, res ) =>
 {
     const { name, password } = req.body;
-    db.get( 'SELECT * FROM users WHERE name = ? AND password = ?', [ name, password ], ( err, user ) =>
+    db.get( 'SELECT * FROM users WHERE name = ?', [ name ], ( err, user ) =>
     {
         if ( err )
         {
             console.error( err.message );
-            // set a flash error and redirect to login
             req.session.loginError = 'Sorry — we had a problem signing you in. Please try again.';
             return res.redirect( '/' );
         }
-        if ( user )
+        if ( user && bcrypt.compareSync( ( password || '' ).toString(), user.password ) )
         {
             // successful login -- clear any previous login error
-            req.session.user = user;
+            req.session.user = { name: user.name, role: user.role };
             if ( req.session.loginError ) delete req.session.loginError;
-            if ( user.role === 'owner_admin' )
-            {
-                return res.redirect( '/admin' );
-            } else
-            {
-                return res.redirect( '/dashboard' );
-            }
+            // Redirect all users to unified dashboard; the UI served at /dashboard
+            return res.redirect( '/dashboard' );
         } else
         {
             // invalid credentials: set session flash and redirect to login page
@@ -323,8 +322,13 @@ app.get( '/user/me', requireLogin, ( req, res ) =>
 // --- EMPLOYEE ROUTES ---
 app.get( '/dashboard', requireLogin, ( req, res ) =>
 {
-    if ( req.session.user.role === 'owner_admin' ) return res.redirect( '/admin' );
-    res.sendFile( path.join( __dirname, 'dashboard.html' ) );
+    // Unified dashboard route: serve admin UI to admins, employee UI to others
+    const role = req.session.user && req.session.user.role;
+    if ( role === 'owner_admin' || role === 'employee_admin' )
+    {
+        return res.sendFile( path.join( __dirname, 'admin.html' ) );
+    }
+    return res.sendFile( path.join( __dirname, 'dashboard.html' ) );
 } );
 
 app.get( '/attendance/status', requireLogin, ( req, res ) =>
@@ -478,7 +482,8 @@ app.get( '/leaves', requireLogin, ( req, res ) =>
 // --- ADMIN ROUTES ---
 app.get( '/admin', requireAdmin, ( req, res ) =>
 {
-    res.sendFile( path.join( __dirname, 'admin.html' ) );
+    // Redirect legacy /admin UI route to unified dashboard
+    return res.redirect( '/dashboard' );
 } );
 
 app.get( '/admin/users', requireAdmin, ( req, res ) =>
@@ -516,36 +521,43 @@ app.post( '/admin/users/add', requireAdmin, ( req, res ) =>
             return res.status( 403 ).json( { success: false, message: 'Only the Owner Admin can create another Owner Admin.' } );
         }
 
-        db.run( 'INSERT INTO users (name, password, role, join_date) VALUES (?, ?, ?, ?)', [ username, pwd, userRole, joinDate ], function ( insertErr )
+        try
         {
-            if ( insertErr ) return res.status( 500 ).json( { success: false, message: insertErr.message } );
-
-            // Create attendance table for the user unless owner_admin
-            if ( userRole !== 'owner_admin' )
+            const pwdHash = bcrypt.hashSync( pwd, SALT_ROUNDS );
+            db.run( 'INSERT INTO users (name, password, role, join_date) VALUES (?, ?, ?, ?)', [ username, pwdHash, userRole, joinDate ], function ( insertErr )
             {
-                db.run( `CREATE TABLE IF NOT EXISTS attendance_${ username } (
+                if ( insertErr ) return res.status( 500 ).json( { success: false, message: insertErr.message } );
+
+                // Create attendance table for the user unless owner_admin
+                if ( userRole !== 'owner_admin' )
+                {
+                    db.run( `CREATE TABLE IF NOT EXISTS attendance_${ username } (
                     date TEXT PRIMARY KEY,
                     in_time TEXT, in_latitude REAL, in_longitude REAL, in_selfie_path TEXT,
                     out_time TEXT, out_latitude REAL, out_longitude REAL, out_selfie_path TEXT
                 )`, ( tableErr ) =>
+                    {
+                        if ( tableErr ) console.error( 'Error creating attendance table for', username, tableErr.message );
+                    } );
+                }
+
+                // Ensure selfie directory exists
+                try
                 {
-                    if ( tableErr ) console.error( 'Error creating attendance table for', username, tableErr.message );
-                } );
-            }
+                    const userSelfieDir = path.join( selfiesDir, username );
+                    if ( !fs.existsSync( userSelfieDir ) ) fs.mkdirSync( userSelfieDir );
+                } catch ( fsErr )
+                {
+                    console.error( 'Error creating selfie dir for', username, fsErr.message );
+                }
 
-            // Ensure selfie directory exists
-            try
-            {
-                const userSelfieDir = path.join( selfiesDir, username );
-                if ( !fs.existsSync( userSelfieDir ) ) fs.mkdirSync( userSelfieDir );
-            } catch ( fsErr )
-            {
-                console.error( 'Error creating selfie dir for', username, fsErr.message );
-            }
-
-            console.log( `Admin ${ req.session.user.name } added user ${ username } with role ${ userRole }` );
-            res.json( { success: true, message: 'User created successfully.' } );
-        } );
+                console.log( `Admin ${ req.session.user.name } added user ${ username } with role ${ userRole }` );
+                res.json( { success: true, message: 'User created successfully.' } );
+            } );
+        } catch ( e )
+        {
+            return res.status( 500 ).json( { success: false, message: 'Error hashing password.' } );
+        }
     } );
 } );
 
@@ -694,11 +706,18 @@ app.post( '/admin/users/reset-password', requireAdmin, ( req, res ) =>
             return res.status( 403 ).json( { success: false, message: 'You are not authorized to perform this action.' } );
         }
 
-        db.run( 'UPDATE users SET password = ? WHERE name = ?', [ newPwd, target ], function ( updateErr )
+        try
         {
-            if ( updateErr ) return res.status( 500 ).json( { success: false, message: updateErr.message } );
-            return res.json( { success: true, message: `Password reset for ${ target }.` } );
-        } );
+            const newHash = bcrypt.hashSync( newPwd, SALT_ROUNDS );
+            db.run( 'UPDATE users SET password = ? WHERE name = ?', [ newHash, target ], function ( updateErr )
+            {
+                if ( updateErr ) return res.status( 500 ).json( { success: false, message: updateErr.message } );
+                return res.json( { success: true, message: `Password reset for ${ target }.` } );
+            } );
+        } catch ( e )
+        {
+            return res.status( 500 ).json( { success: false, message: 'Error hashing new password.' } );
+        }
     } );
 } );
 
@@ -724,18 +743,25 @@ app.post( '/user/change-password', requireLogin, ( req, res ) =>
             return res.status( 400 ).json( { success: false, message: 'Current password is required for change.' } );
         }
 
-        if ( row.password !== old_password )
+        if ( !bcrypt.compareSync( ( old_password || '' ).toString(), row.password ) )
         {
             return res.status( 400 ).json( { success: false, message: 'Current password is incorrect.' } );
         }
 
-        db.run( 'UPDATE users SET password = ? WHERE name = ?', [ new_password.trim(), username ], function ( updateErr )
+        try
         {
-            if ( updateErr ) return res.status( 500 ).json( { success: false, message: updateErr.message } );
-            // Update session copy
-            if ( req.session.user ) req.session.user.password = new_password.trim();
-            return res.json( { success: true, message: 'Password changed successfully.' } );
-        } );
+            const newHash = bcrypt.hashSync( new_password.trim(), SALT_ROUNDS );
+            db.run( 'UPDATE users SET password = ? WHERE name = ?', [ newHash, username ], function ( updateErr )
+            {
+                if ( updateErr ) return res.status( 500 ).json( { success: false, message: updateErr.message } );
+                // Update session copy: do not store password in session
+                if ( req.session.user ) req.session.user = { name: username, role: req.session.user.role };
+                return res.json( { success: true, message: 'Password changed successfully.' } );
+            } );
+        } catch ( e )
+        {
+            return res.status( 500 ).json( { success: false, message: 'Error hashing new password.' } );
+        }
     } );
 } );
 

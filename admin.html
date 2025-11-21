@@ -81,8 +81,24 @@
     <body>
         <div class="container">
             <h1>Admin Dashboard</h1>
-            <p>Welcome, <strong id="admin-name"></strong>! (<span id="admin-role"></span>) <span
-                    id="back-link-container"></span> | <a href="/logout">Logout</a></p>
+            <p>Welcome, <strong id="admin-name"></strong>! (<span id="admin-role"></span>) | <a
+                    href="/logout">Logout</a></p>
+
+            <div class="section">
+                <h2>Change Password</h2>
+                <form id="admin-change-password-form">
+                    <label for="admin-current-password">Current password:</label>
+                    <input type="password" id="admin-current-password" name="old_password" required>
+                    <br><br>
+                    <label for="admin-new-password">New password:</label>
+                    <input type="password" id="admin-new-password" name="new_password" required>
+                    <br><br>
+                    <label for="admin-confirm-new-password">Confirm new password:</label>
+                    <input type="password" id="admin-confirm-new-password" name="confirm_new_password" required>
+                    <br><br>
+                    <button type="submit">Change Password</button>
+                </form>
+            </div>
 
             <!-- Section for Leave Request Management -->
             <div class="section">
@@ -186,18 +202,53 @@
                 document.getElementById( 'admin-name' ).textContent = currentUser.name;
                 document.getElementById( 'admin-role' ).textContent = currentUser.role.replace( '_', ' ' );
 
-                // Show Back to Dashboard link for non-owner admins (employee_admin)
-                if ( currentUser.role !== 'owner_admin' )
-                {
-                    document.getElementById( 'back-link-container' ).innerHTML = ' | <a href="/dashboard">Back to Dashboard</a>';
-                }
+                // no back-link needed; unified dashboard handles navigation
 
                 // Load all necessary data
                 await loadLeaveRequests();
                 await loadAllLeaves();
                 await populateUserDropdown();
                 setupAddUserForm();
+                setupAdminChangePasswordForm();
             } );
+
+            function setupAdminChangePasswordForm ()
+            {
+                const form = document.getElementById( 'admin-change-password-form' );
+                if ( !form ) return;
+                form.addEventListener( 'submit', async ( e ) =>
+                {
+                    e.preventDefault();
+                    const old_password = document.getElementById( 'admin-current-password' ).value;
+                    const new_password = document.getElementById( 'admin-new-password' ).value;
+                    const confirm = document.getElementById( 'admin-confirm-new-password' ).value;
+                    if ( new_password !== confirm ) { if ( window.showAppModal ) showAppModal( 'New passwords do not match.', 'error' ); else alert( 'New passwords do not match.' ); return; }
+                    try
+                    {
+                        const res = await fetch( '/user/change-password', {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify( { old_password, new_password } )
+                        } );
+                        const result = await res.json();
+                        if ( res.ok && result.success )
+                        {
+                            if ( window.showAppModal ) showAppModal( result.message || 'Password changed.', 'success' );
+                            else alert( result.message || 'Password changed.' );
+                            form.reset();
+                        } else
+                        {
+                            if ( window.showAppModal ) showAppModal( result.message || 'Failed to change password.', 'error' );
+                            else alert( result.message || 'Failed to change password.' );
+                        }
+                    } catch ( err )
+                    {
+                        console.error( err );
+                        if ( window.showAppModal ) showAppModal( 'Error changing password.', 'error' );
+                        else alert( 'Error changing password.' );
+                    }
+                } );
+            }
 
             function setupAddUserForm ()
             {

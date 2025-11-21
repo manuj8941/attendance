@@ -250,9 +250,10 @@
                 const currentUser = await userRes.json();
                 document.getElementById( 'user-name' ).textContent = currentUser.name;
 
-                if ( currentUser.role === 'employee_admin' )
+                if ( currentUser.role === 'employee_admin' || currentUser.role === 'owner_admin' )
                 {
-                    document.getElementById( 'admin-link-container' ).innerHTML = ' | <a href="/admin">Admin Panel</a>';
+                    // Unified dashboard — admin UI is available at /dashboard
+                    document.getElementById( 'admin-link-container' ).innerHTML = ' | <a href="/dashboard">Admin Panel</a>';
                 }
 
                 // Load all parts of the dashboard

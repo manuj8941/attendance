@@ -1,0 +1,154 @@
+<!DOCTYPE html>
+<html lang="en">
+
+    <head>
+        <meta charset="utf-8">
+        <meta name="viewport" content="width=device-width,initial-scale=1">
+        <title>Profile</title>
+        <link rel="stylesheet" href="/css/mobile.css">
+        <style>
+            body {
+                font-family: sans-serif;
+                margin: 2em;
+            }
+
+            .container {
+                max-width: 700px;
+                margin: auto;
+            }
+
+            .section {
+                background: #f4f4f4;
+                padding: 1em;
+                margin-top: 1em;
+                border-radius: 6px
+            }
+
+            .modal {
+                display: none;
+                position: fixed;
+                z-index: 10;
+                left: 0;
+                top: 0;
+                width: 100%;
+                height: 100%;
+                background: rgba(0, 0, 0, .4);
+            }
+
+            .modal-content {
+                background: #fff;
+                margin: 15% auto;
+                padding: 20px;
+                max-width: 480px;
+                border-radius: 8px;
+                text-align: center
+            }
+
+            .close-button {
+                float: right;
+                cursor: pointer
+            }
+        </style>
+    </head>
+
+    <body>
+        <div class="container">
+            <h1>Profile</h1>
+            <p>Welcome, <strong id="profile-name"></strong>! (<span id="profile-role"></span>) | <a id="back-link"
+                    href="/dashboard">Back</a> | <a href="/logout">Logout</a></p>
+
+            <div class="section">
+                <h2>Change Password</h2>
+                <form id="profile-change-password-form">
+                    <label for="current-password">Current password:</label>
+                    <input type="password" id="current-password" name="old_password" required>
+                    <br><br>
+                    <label for="new-password">New password:</label>
+                    <input type="password" id="new-password" name="new_password" required>
+                    <br><br>
+                    <label for="confirm-new-password">Confirm new password:</label>
+                    <input type="password" id="confirm-new-password" name="confirm_new_password" required>
+                    <br><br>
+                    <button type="submit">Change Password</button>
+                </form>
+            </div>
+
+            <div class="section">
+                <h2>Account Info</h2>
+                <p><strong>Username:</strong> <span id="info-username"></span></p>
+                <p><strong>Role:</strong> <span id="info-role"></span></p>
+            </div>
+        </div>
+
+        <!-- Modal -->
+        <div id="profileModal" class="modal">
+            <div class="modal-content">
+                <span class="close-button">&times;</span>
+                <p id="profile-modal-message"></p>
+                <button id="profile-modal-ok">Okay</button>
+            </div>
+        </div>
+
+        <script>
+            async function fetchUser ()
+            {
+                const res = await fetch( '/user/me' );
+                if ( !res.ok ) return null;
+                return res.json();
+            }
+
+            function showModal ( message, type )
+            {
+                const modal = document.getElementById( 'profileModal' );
+                const msg = document.getElementById( 'profile-modal-message' );
+                msg.textContent = message;
+                modal.style.display = 'block';
+            }
+            function hideModal () { document.getElementById( 'profileModal' ).style.display = 'none'; }
+
+            document.querySelector( '.close-button' ).addEventListener( 'click', hideModal );
+            document.getElementById( 'profile-modal-ok' ).addEventListener( 'click', hideModal );
+            window.addEventListener( 'click', ( e ) => { if ( e.target === document.getElementById( 'profileModal' ) ) hideModal(); } );
+
+            window.addEventListener( 'load', async () =>
+            {
+                const user = await fetchUser();
+                if ( !user ) { showModal( 'Could not load profile. Please login again.' ); return; }
+                document.getElementById( 'profile-name' ).textContent = user.name;
+                document.getElementById( 'profile-role' ).textContent = ( user.role || '' ).replace( '_', ' ' );
+                document.getElementById( 'info-username' ).textContent = user.name;
+                document.getElementById( 'info-role' ).textContent = ( user.role || '' ).replace( '_', ' ' );
+
+                // Back link: admins and others use unified /dashboard
+                const back = document.getElementById( 'back-link' );
+                back.href = '/dashboard';
+            } );
+
+            // Change password handler
+            document.getElementById( 'profile-change-password-form' ).addEventListener( 'submit', async ( e ) =>
+            {
+                e.preventDefault();
+                const old_password = document.getElementById( 'current-password' ).value;
+                const new_password = document.getElementById( 'new-password' ).value;
+                const confirm = document.getElementById( 'confirm-new-password' ).value;
+                if ( new_password !== confirm ) { showModal( 'New passwords do not match.' ); return; }
+                try
+                {
+                    const res = await fetch( '/user/change-password', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify( { old_password, new_password } )
+                    } );
+                    const result = await res.json();
+                    if ( res.ok && result.success ) { showModal( result.message || 'Password changed.' ); document.getElementById( 'profile-change-password-form' ).reset(); }
+                    else { showModal( result.message || 'Failed to change password.' ); }
+                } catch ( err )
+                {
+                    console.error( err );
+                    showModal( 'Error changing password.' );
+                }
+            } );
+        </script>
+    </body>
+
+</html>
