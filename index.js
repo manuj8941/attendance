@@ -42,6 +42,8 @@ app.use( session( {
 app.use( express.urlencoded( { extended: true, limit: '50mb' } ) );
 app.use( express.json( { limit: '50mb' } ) );
 app.use( '/selfies', express.static( 'selfies' ) );
+// Serve public assets (CSS, JS) including mobile stylesheet
+app.use( express.static( 'public' ) );
 
 // --- DATABASE INITIALIZATION ---
 const db = new sqlite3.Database( './attendance.db', ( err ) =>
@@ -135,6 +137,24 @@ function formatTimeForDisplay ( date, time )
     return moment( `${ date } ${ time }`, 'YYYY-MM-DD HH:mm:ss' ).format( 'h:mm A' );
 }
 
+function computeTotalTimeForRow ( row )
+{
+    if ( !row || !row.in_time ) return null;
+    try
+    {
+        const inMoment = moment( `${ row.date } ${ row.in_time }`, 'YYYY-MM-DD HH:mm:ss' );
+        const outMoment = row.out_time ? moment( `${ row.date } ${ row.out_time }`, 'YYYY-MM-DD HH:mm:ss' ) : moment();
+        const diff = moment.duration( outMoment.diff( inMoment ) );
+        if ( diff.asMilliseconds() <= 0 ) return null;
+        const hours = Math.floor( diff.asHours() );
+        const minutes = diff.minutes();
+        return `${ hours }h ${ minutes }m`;
+    } catch ( e )
+    {
+        return null;
+    }
+}
+
 function formatDateForDisplay ( date )
 {
     if ( !date ) return null;
@@ -222,7 +242,7 @@ function requireAdmin ( req, res, next )
         next();
     } else
     {
-        res.status( 403 ).send( 'Access Denied' );
+        res.status( 403 ).send( 'You are not authorized to access that page.' );
     }
 }
 
@@ -251,23 +271,40 @@ app.post( '/login', ( req, res ) =>
     {
         if ( err )
         {
-            return console.error( err.message );
+            console.error( err.message );
+            // set a flash error and redirect to login
+            req.session.loginError = 'Sorry — we had a problem signing you in. Please try again.';
+            return res.redirect( '/' );
         }
         if ( user )
         {
+            // successful login -- clear any previous login error
             req.session.user = user;
+            if ( req.session.loginError ) delete req.session.loginError;
             if ( user.role === 'owner_admin' )
             {
-                res.redirect( '/admin' );
+                return res.redirect( '/admin' );
             } else
             {
-                res.redirect( '/dashboard' );
+                return res.redirect( '/dashboard' );
             }
         } else
         {
-            res.send( 'Invalid credentials' );
+            // invalid credentials: set session flash and redirect to login page
+            req.session.loginError = 'Incorrect username or password. Please try again.';
+            return res.redirect( '/' );
         }
     } );
+} );
+
+
+// Provide login error flash (read-and-clear) for client-side UI
+app.get( '/login/error', ( req, res ) =>
+{
+    const errMsg = req.session.loginError || null;
+    // clear the flash
+    if ( req.session.loginError ) delete req.session.loginError;
+    res.json( { error: errMsg } );
 } );
 
 app.get( '/logout', ( req, res ) =>
@@ -293,6 +330,11 @@ app.get( '/dashboard', requireLogin, ( req, res ) =>
 app.get( '/attendance/status', requireLogin, ( req, res ) =>
 {
     const user = req.session.user;
+    // Owner/admin accounts do not have attendance records — return friendly message
+    if ( user && user.role === 'owner_admin' )
+    {
+        return res.json( { status: 'not_applicable', message: 'Attendance is not applicable for owner/admin accounts.' } );
+    }
     const today = moment().format( 'YYYY-MM-DD' );
     db.get( `SELECT * FROM attendance_${ user.name } WHERE date = ?`, [ today ], ( err, row ) =>
     {
@@ -351,7 +393,8 @@ app.get( '/attendance', requireLogin, ( req, res ) =>
             ...row,
             date: formatDateForDisplay( row.date ),
             in_time: formatTimeForDisplay( row.date, row.in_time ),
-            out_time: formatTimeForDisplay( row.date, row.out_time )
+            out_time: formatTimeForDisplay( row.date, row.out_time ),
+            total_time: computeTotalTimeForRow( row )
         } ) );
         res.json( formattedRows );
     } );
@@ -381,13 +424,13 @@ app.post( '/leaves/apply', requireLogin, async ( req, res ) =>
 
         if ( balance < leaveDuration )
         {
-            return res.status( 400 ).json( { success: false, message: 'Insufficient leave balance.' } );
+            return res.status( 400 ).json( { success: false, message: 'You do not have enough leave balance for the requested dates.' } );
         }
 
         db.run( 'INSERT INTO leaves (username, start_date, end_date, reason) VALUES (?, ?, ?, ?)',
             [ username, start_date, end_date, reason ], function ( err )
         {
-            if ( err ) return res.status( 500 ).json( { success: false, message: 'Error applying for leave.' } );
+            if ( err ) return res.status( 500 ).json( { success: false, message: 'We could not submit your leave request. Please try again later.' } );
             console.log( `${ username } applied for leave from ${ moment( start_date, 'YYYY-MM-DD' ).format( 'DD-MMMM-YYYY' ) } to ${ moment( end_date, 'YYYY-MM-DD' ).format( 'DD-MMMM-YYYY' ) }` );
             res.status( 200 ).json( { success: true, message: 'Leave applied successfully.' } );
         } );
@@ -426,6 +469,65 @@ app.get( '/admin/users', requireAdmin, ( req, res ) =>
     } );
 } );
 
+// Add new user (admins only)
+app.post( '/admin/users/add', requireAdmin, ( req, res ) =>
+{
+    const { name, password, role } = req.body;
+    const username = ( name || '' ).trim();
+    const pwd = ( password && password.trim() ) ? password.trim() : '111';
+    const userRole = role || 'employee';
+
+    // Basic validation: allow only letters, numbers, underscore
+    if ( !/^[A-Za-z0-9_]+$/.test( username ) )
+    {
+        return res.status( 400 ).json( { success: false, message: 'Username can only contain letters, numbers, and underscore.' } );
+    }
+
+    db.get( 'SELECT name FROM users WHERE name = ?', [ username ], ( err, row ) =>
+    {
+        if ( err ) return res.status( 500 ).json( { success: false, message: err.message } );
+        if ( row ) return res.status( 400 ).json( { success: false, message: 'That username is already taken. Please choose a different one.' } );
+
+        const joinDate = moment().format( 'YYYY-MM-DD' );
+        // Prevent employee_admin from creating owner_admin
+        if ( req.session.user && req.session.user.role === 'employee_admin' && userRole === 'owner_admin' )
+        {
+            return res.status( 403 ).json( { success: false, message: 'Only the Owner Admin can create another Owner Admin.' } );
+        }
+
+        db.run( 'INSERT INTO users (name, password, role, join_date) VALUES (?, ?, ?, ?)', [ username, pwd, userRole, joinDate ], function ( insertErr )
+        {
+            if ( insertErr ) return res.status( 500 ).json( { success: false, message: insertErr.message } );
+
+            // Create attendance table for the user unless owner_admin
+            if ( userRole !== 'owner_admin' )
+            {
+                db.run( `CREATE TABLE IF NOT EXISTS attendance_${ username } (
+                    date TEXT PRIMARY KEY,
+                    in_time TEXT, in_latitude REAL, in_longitude REAL, in_selfie_path TEXT,
+                    out_time TEXT, out_latitude REAL, out_longitude REAL, out_selfie_path TEXT
+                )`, ( tableErr ) =>
+                {
+                    if ( tableErr ) console.error( 'Error creating attendance table for', username, tableErr.message );
+                } );
+            }
+
+            // Ensure selfie directory exists
+            try
+            {
+                const userSelfieDir = path.join( selfiesDir, username );
+                if ( !fs.existsSync( userSelfieDir ) ) fs.mkdirSync( userSelfieDir );
+            } catch ( fsErr )
+            {
+                console.error( 'Error creating selfie dir for', username, fsErr.message );
+            }
+
+            console.log( `Admin ${ req.session.user.name } added user ${ username } with role ${ userRole }` );
+            res.json( { success: true, message: 'User created successfully.' } );
+        } );
+    } );
+} );
+
 app.get( '/admin/attendance/:username', requireAdmin, ( req, res ) =>
 {
     const { username } = req.params;
@@ -436,7 +538,8 @@ app.get( '/admin/attendance/:username', requireAdmin, ( req, res ) =>
             ...row,
             date: formatDateForDisplay( row.date ),
             in_time: formatTimeForDisplay( row.date, row.in_time ),
-            out_time: formatTimeForDisplay( row.date, row.out_time )
+            out_time: formatTimeForDisplay( row.date, row.out_time ),
+            total_time: computeTotalTimeForRow( row )
         } ) );
         res.json( formattedRows );
     } );
@@ -489,17 +592,17 @@ app.post( '/admin/leaves/action', requireAdmin, ( req, res ) =>
 
     db.get( 'SELECT l.*, u.role FROM leaves l JOIN users u ON l.username = u.name WHERE l.leave_id = ?', [ leave_id ], ( err, leave ) =>
     {
-        if ( err || !leave ) return res.status( 404 ).send( 'Leave not found.' );
+        if ( err || !leave ) return res.status( 404 ).send( 'Leave request not found.' );
 
         // Check permissions
         if ( admin.role === 'employee_admin' && leave.role !== 'employee' )
         {
-            return res.status( 403 ).send( 'You are not authorized to action this leave request.' );
+            return res.status( 403 ).send( 'You do not have permission to approve or reject this leave request.' );
         }
 
         if ( admin.role !== 'owner_admin' && leave.role === 'employee_admin' )
         {
-            return res.status( 403 ).send( 'Only the Owner Admin can action this leave request.' );
+            return res.status( 403 ).send( 'Only the Owner Admin may approve or reject this leave request.' );
         }
 
         if ( status === 'approved' )
@@ -510,7 +613,7 @@ app.post( '/admin/leaves/action', requireAdmin, ( req, res ) =>
 
         db.run( 'UPDATE leaves SET status = ?, approved_by = ? WHERE leave_id = ?', [ status, admin.name, leave_id ], function ( err )
         {
-            if ( err ) return res.status( 500 ).send( 'Error processing leave request.' );
+            if ( err ) return res.status( 500 ).send( 'We could not process this leave request. Please try again.' );
             console.log( `${ admin.name } ${ status } leave for ${ leave.username } from dates ${ moment( leave.start_date, 'YYYY-MM-DD' ).format( 'DD-MMMM-YYYY' ) } to ${ moment( leave.end_date, 'YYYY-MM-DD' ).format( 'DD-MMMM-YYYY' ) }` );
             res.sendStatus( 200 );
         } );
@@ -518,7 +621,118 @@ app.post( '/admin/leaves/action', requireAdmin, ( req, res ) =>
 } );
 
 // --- SERVER START ---
-app.listen( port, () =>
+//app.listen( port, () =>
+//{
+//    console.log( `Server listening at http://localhost:${ port }` );
+//} );
+
+// Admin: reset passwords for a group of users
+app.post( '/admin/users/reset-password', requireAdmin, ( req, res ) =>
 {
-    console.log( `Server listening at http://localhost:${ port }` );
+    const { username, password } = req.body;
+    const newPwd = ( password && password.trim() ) ? password.trim() : '111';
+    const requesterRole = req.session.user && req.session.user.role;
+
+    if ( !username || !username.trim() )
+    {
+        return res.status( 400 ).json( { success: false, message: 'Please select a user to reset.' } );
+    }
+
+    const target = username.trim();
+    db.get( 'SELECT role FROM users WHERE name = ?', [ target ], ( err, row ) =>
+    {
+        if ( err ) return res.status( 500 ).json( { success: false, message: err.message } );
+        if ( !row ) return res.status( 404 ).json( { success: false, message: 'The selected user was not found.' } );
+        const targetRole = row.role;
+
+        // Permission checks
+        if ( requesterRole === 'owner_admin' )
+        {
+            // owner_admin can reset anyone (owner_admin, employee_admin, employee)
+            // no additional checks needed
+        } else if ( requesterRole === 'employee_admin' )
+        {
+            // employee_admin can reset employee_admins and employees, but not owner_admins
+            if ( targetRole === 'owner_admin' ) return res.status( 403 ).json( { success: false, message: 'You do not have permission to reset that user\'s password.' } );
+        } else
+        {
+            return res.status( 403 ).json( { success: false, message: 'You are not authorized to perform this action.' } );
+        }
+
+        db.run( 'UPDATE users SET password = ? WHERE name = ?', [ newPwd, target ], function ( updateErr )
+        {
+            if ( updateErr ) return res.status( 500 ).json( { success: false, message: updateErr.message } );
+            return res.json( { success: true, message: `Password reset for ${ target }.` } );
+        } );
+    } );
 } );
+
+// User: change own password
+app.post( '/user/change-password', requireLogin, ( req, res ) =>
+{
+    const { old_password, new_password } = req.body;
+    const username = req.session.user.name;
+
+    if ( !new_password || !new_password.trim() )
+    {
+        return res.status( 400 ).json( { success: false, message: 'New password is required.' } );
+    }
+
+    db.get( 'SELECT password FROM users WHERE name = ?', [ username ], ( err, row ) =>
+    {
+        if ( err ) return res.status( 500 ).json( { success: false, message: err.message } );
+        if ( !row ) return res.status( 404 ).json( { success: false, message: 'User not found.' } );
+
+        // If old_password provided, verify it. If not provided, require it for safety.
+        if ( !old_password )
+        {
+            return res.status( 400 ).json( { success: false, message: 'Current password is required for change.' } );
+        }
+
+        if ( row.password !== old_password )
+        {
+            return res.status( 400 ).json( { success: false, message: 'Current password is incorrect.' } );
+        }
+
+        db.run( 'UPDATE users SET password = ? WHERE name = ?', [ new_password.trim(), username ], function ( updateErr )
+        {
+            if ( updateErr ) return res.status( 500 ).json( { success: false, message: updateErr.message } );
+            // Update session copy
+            if ( req.session.user ) req.session.user.password = new_password.trim();
+            return res.json( { success: true, message: 'Password changed successfully.' } );
+        } );
+    } );
+} );
+
+// Normalize or redirect invalid dashboard subpaths to the main dashboard
+// Use app.use to match the prefix without using a path-to-regexp wildcard pattern
+app.use( '/dashboard', requireLogin, ( req, res, next ) =>
+{
+    // If the request is to a subpath under /dashboard, redirect to base dashboard
+    if ( req.method === 'GET' && req.path && req.path !== '/' && req.path !== '' )
+    {
+        return res.redirect( '/dashboard' );
+    }
+    next();
+} );
+
+// Catch-all 404 handler (serve friendly page)
+app.use( ( req, res ) =>
+{
+    res.status( 404 ).sendFile( path.join( __dirname, '404.html' ) );
+} );
+
+// Error handler middleware (500)
+app.use( ( err, req, res, next ) =>
+{
+    console.error( 'Server error:', err );
+    if ( req.accepts( 'html' ) )
+    {
+        res.status( 500 ).sendFile( path.join( __dirname, '500.html' ) );
+    } else
+    {
+        res.status( 500 ).json( { error: 'Internal Server Error' } );
+    }
+} );
+// Export the Express app so an HTTPS server can wrap it
+module.exports = app;

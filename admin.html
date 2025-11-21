@@ -74,13 +74,15 @@
                 color: red;
             }
         </style>
+        <link rel="stylesheet" href="/css/mobile.css">
+        <script src="/js/ui.js"></script>
     </head>
 
     <body>
         <div class="container">
             <h1>Admin Dashboard</h1>
-            <p>Welcome, <strong id="admin-name"></strong>! (<span id="admin-role"></span>) | <a
-                    href="/logout">Logout</a></p>
+            <p>Welcome, <strong id="admin-name"></strong>! (<span id="admin-role"></span>) <span
+                    id="back-link-container"></span> | <a href="/logout">Logout</a></p>
 
             <!-- Section for Leave Request Management -->
             <div class="section">
@@ -119,6 +121,39 @@
 
             <!-- Section for Viewing Employee Attendance -->
             <div class="section">
+                <h2>Add New User</h2>
+                <form id="add-user-form">
+                    <label for="new-username">Username:</label>
+                    <input type="text" id="new-username" name="name" required pattern="[A-Za-z0-9_]+">
+                    <br><br>
+                    <label for="new-password">Password (optional, default 111):</label>
+                    <input type="text" id="new-password" name="password" placeholder="111">
+                    <br><br>
+                    <label for="new-role">Role:</label>
+                    <select id="new-role" name="role">
+                        <option value="employee">Employee</option>
+                        <option value="employee_admin">Employee Admin</option>
+                        <option value="owner_admin">Owner Admin</option>
+                    </select>
+                    <br><br>
+                    <button type="submit">Add User</button>
+                </form>
+                <hr>
+                <h2>Reset Passwords</h2>
+                <form id="reset-password-form">
+                    <label>Reset Target:</label>
+                    <br>
+                    <select id="reset-target" name="reset_target">
+                        <option value="">-- Select a user to reset --</option>
+                        <!-- specific users will be appended here -->
+                    </select>
+                    <br><br>
+                    <label for="reset-password">New password (optional, default 111):</label>
+                    <input type="text" id="reset-password" name="password" placeholder="111">
+                    <br><br>
+                    <button type="submit">Reset Password</button>
+                </form>
+                <hr>
                 <h2>View Employee Attendance</h2>
                 <label for="user-select">Select Employee:</label>
                 <select id="user-select"></select>
@@ -132,6 +167,7 @@
                             <th>Out Time</th>
                             <th>Out Location</th>
                             <th>Out Selfie</th>
+                            <th>Total Time</th>
                         </tr>
                     </thead>
                     <tbody id="attendance-viewer-body"></tbody>
@@ -150,11 +186,99 @@
                 document.getElementById( 'admin-name' ).textContent = currentUser.name;
                 document.getElementById( 'admin-role' ).textContent = currentUser.role.replace( '_', ' ' );
 
+                // Show Back to Dashboard link for non-owner admins (employee_admin)
+                if ( currentUser.role !== 'owner_admin' )
+                {
+                    document.getElementById( 'back-link-container' ).innerHTML = ' | <a href="/dashboard">Back to Dashboard</a>';
+                }
+
                 // Load all necessary data
                 await loadLeaveRequests();
                 await loadAllLeaves();
                 await populateUserDropdown();
+                setupAddUserForm();
             } );
+
+            function setupAddUserForm ()
+            {
+                const form = document.getElementById( 'add-user-form' );
+                const roleSelect = document.getElementById( 'new-role' );
+                // If the current admin is an employee_admin, remove the owner_admin option
+                if ( currentUser && currentUser.role === 'employee_admin' )
+                {
+                    const ownerOption = roleSelect.querySelector( 'option[value="owner_admin"]' );
+                    if ( ownerOption ) ownerOption.remove();
+                }
+                form.addEventListener( 'submit', async ( e ) =>
+                {
+                    e.preventDefault();
+                    const name = document.getElementById( 'new-username' ).value.trim();
+                    const password = document.getElementById( 'new-password' ).value;
+                    const role = document.getElementById( 'new-role' ).value;
+
+                    try
+                    {
+                        const res = await fetch( '/admin/users/add', {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify( { name, password, role } )
+                        } );
+                        const result = await res.json();
+                        if ( res.ok && result.success )
+                        {
+                            showAppModal( 'User created successfully.', 'success' );
+                            form.reset();
+                            populateUserDropdown();
+                        } else
+                        {
+                            showAppModal( result.message || 'Could not create the user. Please try again.', 'error' );
+                        }
+                    } catch ( err )
+                    {
+                        console.error( err );
+                        showAppModal( 'An error occurred while creating the user. Please try again.', 'error' );
+                    }
+                } );
+
+                // Reset passwords handler
+                const resetForm = document.getElementById( 'reset-password-form' );
+                resetForm.addEventListener( 'submit', async ( e ) =>
+                {
+                    e.preventDefault();
+                    const password = document.getElementById( 'reset-password' ).value;
+                    const target = document.getElementById( 'reset-target' ).value;
+
+                    if ( !target )
+                    {
+                        showAppModal( 'Please choose a user to reset.', 'error' );
+                        return;
+                    }
+
+                    try
+                    {
+                        const res = await fetch( '/admin/users/reset-password', {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify( { username: target, password } )
+                        } );
+                        const result = await res.json();
+                        if ( res.ok && result.success )
+                        {
+                            showAppModal( result.message, 'success' );
+                        } else
+                        {
+                            showAppModal( result.message || 'Failed to reset the user\'s password. Please try again.', 'error' );
+                        }
+                    } catch ( err )
+                    {
+                        console.error( err );
+                        showAppModal( 'We could not reset the password right now. Please try again.', 'error' );
+                    }
+                } );
+
+
+            }
+
 
             // --- LEAVE MANAGEMENT ---
             async function loadLeaveRequests ()
@@ -229,6 +353,12 @@
                 const users = await res.json();
                 const select = document.getElementById( 'user-select' );
                 select.innerHTML = '<option value="">-- Select an employee --</option>';
+                const resetSelect = document.getElementById( 'reset-target' );
+                // clear existing options
+                if ( resetSelect )
+                {
+                    resetSelect.innerHTML = '<option value="">-- Select a user to reset --</option>';
+                }
                 users.forEach( user =>
                 {
                     if ( user.role !== 'owner_admin' )
@@ -237,6 +367,28 @@
                         option.value = user.name;
                         option.textContent = `${ user.name } (${ user.role.replace( '_', ' ' ) })`;
                         select.appendChild( option );
+                    }
+
+                    // Add to reset-target select for specific user reset
+                    if ( resetSelect )
+                    {
+                        // owner_admin sees all users; employee_admin sees employee_admin and employee; never include other users beyond those
+                        if ( currentUser && currentUser.role === 'owner_admin' )
+                        {
+                            const rOpt = document.createElement( 'option' );
+                            rOpt.value = user.name;
+                            rOpt.textContent = `${ user.name } (${ user.role.replace( '_', ' ' ) })`;
+                            resetSelect.appendChild( rOpt );
+                        } else if ( currentUser && currentUser.role === 'employee_admin' )
+                        {
+                            if ( user.role === 'employee' || user.role === 'employee_admin' )
+                            {
+                                const rOpt = document.createElement( 'option' );
+                                rOpt.value = user.name;
+                                rOpt.textContent = `${ user.name } (${ user.role.replace( '_', ' ' ) })`;
+                                resetSelect.appendChild( rOpt );
+                            }
+                        }
                     }
                 } );
                 select.addEventListener( 'change', ( e ) =>
@@ -256,7 +408,7 @@
                 tbody.innerHTML = '';
                 if ( attendance.length === 0 )
                 {
-                    tbody.innerHTML = '<tr><td colspan="7">No attendance records found for this user.</td></tr>';
+                    tbody.innerHTML = '<tr><td colspan="8">No attendance records found for this user.</td></tr>';
                     return;
                 }
                 attendance.forEach( row =>
@@ -270,6 +422,7 @@
                     <td>${ row.out_time || '' }</td>
                     <td>${ row.out_latitude ? `${ row.out_latitude.toFixed( 4 ) }, ${ row.out_longitude.toFixed( 4 ) }` : '' }</td>
                     <td>${ row.out_selfie_path ? `<img src="${ row.out_selfie_path }" width="100">` : '' }</td>
+                    <td>${ row.total_time || '' }</td>
                 `;
                     tbody.appendChild( tr );
                 } );

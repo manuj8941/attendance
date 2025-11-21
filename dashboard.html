@@ -54,24 +54,37 @@
 
             /* Modal styles */
             .modal {
-                display: none; /* Hidden by default */
-                position: fixed; /* Stay in place */
-                z-index: 1; /* Sit on top */
+                display: none;
+                /* Hidden by default */
+                position: fixed;
+                /* Stay in place */
+                z-index: 1;
+                /* Sit on top */
                 left: 0;
                 top: 0;
-                width: 100%; /* Full width */
-                height: 100%; /* Full height */
-                overflow: auto; /* Enable scroll if needed */
-                background-color: rgba(0,0,0,0.4); /* Black w/ opacity */
+                width: 100%;
+                /* Full width */
+                height: 100%;
+                /* Full height */
+                overflow: auto;
+                /* Enable scroll if needed */
+                background-color: rgba(0, 0, 0, 0.4);
+                /* Black w/ opacity */
             }
 
             .modal-content {
                 background-color: #fefefe;
-                margin: 15% auto; /* 15% from the top and centered */
+                margin: 15% auto;
+                /* 15% from the top and centered */
                 padding: 20px;
                 border: 1px solid #888;
-                width: 80%; /* Could be more or less, depending on screen size */
+                width: 80%;
+                /* Could be more or less, depending on screen size */
                 max-width: 500px;
+                max-width: 500px;
+                border-radius: 8px;
+                text-align: center;
+                position: relative;
                 border-radius: 8px;
                 text-align: center;
                 position: relative;
@@ -106,6 +119,7 @@
                 background-color: #45a049;
             }
         </style>
+        <link rel="stylesheet" href="/css/mobile.css">
     </head>
 
     <body>
@@ -185,6 +199,23 @@
                 </table>
             </div>
 
+            <!-- Change Password Section -->
+            <div class="section">
+                <h2>Change Password</h2>
+                <form id="change-password-form">
+                    <label for="current-password-user">Current password:</label>
+                    <input type="password" id="current-password-user" name="old_password" required>
+                    <br><br>
+                    <label for="new-password-user">New password:</label>
+                    <input type="password" id="new-password-user" name="new_password" required>
+                    <br><br>
+                    <label for="confirm-new-password-user">Confirm new password:</label>
+                    <input type="password" id="confirm-new-password-user" name="confirm_new_password" required>
+                    <br><br>
+                    <button type="submit">Change Password</button>
+                </form>
+            </div>
+
             <!-- Attendance Records Section -->
             <div class="section">
                 <h2>Your Attendance Records</h2>
@@ -198,11 +229,12 @@
                             <th>Out Time</th>
                             <th>Out Location</th>
                             <th>Out Selfie</th>
+                            <th>Total Time</th>
                         </tr>
                     </thead>
                     <tbody id="attendance-body">
                         <tr>
-                            <td colspan="7">Loading records...</td>
+                            <td colspan="8">Loading records...</td>
                         </tr>
                     </tbody>
                 </table>
@@ -299,7 +331,7 @@
                 tbody.innerHTML = '';
                 if ( attendance.length === 0 )
                 {
-                    tbody.innerHTML = '<tr><td colspan="7">No records found.</td></tr>';
+                    tbody.innerHTML = '<tr><td colspan="8">No records found.</td></tr>';
                     return;
                 }
                 attendance.forEach( row =>
@@ -313,6 +345,7 @@
                     <td>${ row.out_time || '' }</td>
                     <td>${ row.out_latitude ? `${ row.out_latitude.toFixed( 4 ) }, ${ row.out_longitude.toFixed( 4 ) }` : '' }</td>
                     <td>${ row.out_selfie_path ? `<img src="${ row.out_selfie_path }" width="100">` : '' }</td>
+                    <td>${ row.total_time || '' }</td>
                 `;
                     tbody.appendChild( tr );
                 } );
@@ -351,66 +384,106 @@
             }
 
             // Modal Logic
-            const modal = document.getElementById('myModal');
-            const modalMessage = document.getElementById('modal-message');
-            const modalOkButton = document.getElementById('modal-ok-button');
-            const closeButton = document.querySelector('.close-button');
+            const modal = document.getElementById( 'myModal' );
+            const modalMessage = document.getElementById( 'modal-message' );
+            const modalOkButton = document.getElementById( 'modal-ok-button' );
+            const closeButton = document.querySelector( '.close-button' );
 
-            function showModal(message, type) {
+            function showModal ( message, type )
+            {
                 modalMessage.textContent = message;
                 // Optional: Add classes for styling success/error messages
                 modalMessage.className = type === 'success' ? 'modal-success' : 'modal-error';
                 modal.style.display = 'block';
             }
 
-            function hideModal() {
+            function hideModal ()
+            {
                 modal.style.display = 'none';
             }
 
-            closeButton.addEventListener('click', hideModal);
-            modalOkButton.addEventListener('click', hideModal);
-            window.addEventListener('click', (event) => {
-                if (event.target == modal) {
+            closeButton.addEventListener( 'click', hideModal );
+            modalOkButton.addEventListener( 'click', hideModal );
+            window.addEventListener( 'click', ( event ) =>
+            {
+                if ( event.target == modal )
+                {
                     hideModal();
                 }
-            });
+            } );
 
-            document.addEventListener('DOMContentLoaded', () => {
-                const leaveForm = document.getElementById('leave-application-form');
+            // Change password handler (for regular users)
+            const changePasswordForm = document.getElementById( 'change-password-form' );
+            if ( changePasswordForm )
+            {
+                changePasswordForm.addEventListener( 'submit', async ( e ) =>
+                {
+                    e.preventDefault();
+                    const old_password = document.getElementById( 'current-password-user' ).value;
+                    const new_password = document.getElementById( 'new-password-user' ).value;
+                    const confirm = document.getElementById( 'confirm-new-password-user' ).value;
+                    if ( new_password !== confirm ) { showModal( 'New passwords do not match.', 'error' ); return; }
+                    try
+                    {
+                        const res = await fetch( '/user/change-password', {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify( { old_password, new_password } )
+                        } );
+                        const result = await res.json();
+                        if ( res.ok && result.success ) { showModal( result.message, 'success' ); changePasswordForm.reset(); }
+                        else { showModal( result.message || 'Failed to change password.', 'error' ); }
+                    } catch ( err )
+                    {
+                        console.error( err );
+                        showModal( 'Error changing password.', 'error' );
+                    }
+                } );
+            }
 
-                if (leaveForm) {
-                    leaveForm.addEventListener('submit', async (event) => {
+            document.addEventListener( 'DOMContentLoaded', () =>
+            {
+                const leaveForm = document.getElementById( 'leave-application-form' );
+
+                if ( leaveForm )
+                {
+                    leaveForm.addEventListener( 'submit', async ( event ) =>
+                    {
                         event.preventDefault(); // Prevent default form submission
 
-                        const formData = new FormData(leaveForm);
-                        const data = Object.fromEntries(formData.entries());
+                        const formData = new FormData( leaveForm );
+                        const data = Object.fromEntries( formData.entries() );
 
-                        try {
-                            const response = await fetch('/leaves/apply', {
+                        try
+                        {
+                            const response = await fetch( '/leaves/apply', {
                                 method: 'POST',
                                 headers: {
                                     'Content-Type': 'application/json'
                                 },
-                                body: JSON.stringify(data)
-                            });
+                                body: JSON.stringify( data )
+                            } );
 
                             const result = await response.json();
 
-                            if (result.success) {
-                                showModal(result.message, 'success');
+                            if ( result.success )
+                            {
+                                showModal( result.message, 'success' );
                                 leaveForm.reset(); // Clear the form on success
                                 loadLeaveBalance(); // Refresh leave balance
                                 loadLeaveHistory(); // Refresh leave history
-                            } else {
-                                showModal(result.message, 'error');
+                            } else
+                            {
+                                showModal( result.message, 'error' );
                             }
-                        } catch (error) {
-                            console.error('Error applying for leave:', error);
-                            showModal('An unexpected error occurred.', 'error');
+                        } catch ( error )
+                        {
+                            console.error( 'Error applying for leave:', error );
+                            showModal( 'An unexpected error occurred.', 'error' );
                         }
-                    });
+                    } );
                 }
-            });
+            } );
         </script>
     </body>
 

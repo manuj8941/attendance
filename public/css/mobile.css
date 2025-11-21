@@ -1,0 +1,186 @@
+/* Mobile-first UI: force a mobile-style layout on all screen sizes */
+:root
+{
+    --bg: #ffffff;
+    --muted: #6b7280;
+    --accent: #0ea5a4;
+    --success: #16a34a;
+    --danger: #dc2626;
+    --card: #f8fafc;
+}
+
+html,
+body
+{
+    height: 100%;
+}
+
+body
+{
+    margin: 0;
+    font-family: Inter, system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial;
+    background: var(--bg);
+    color: #0f172a;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+    display: flex;
+    justify-content: center;
+    padding: 1rem;
+}
+
+.container
+{
+    width: 100%;
+    max-width: 420px;
+    /* mobile width */
+    background: transparent;
+}
+
+.card,
+.section
+{
+    background: var(--card);
+    border-radius: 12px;
+    padding: 12px;
+    margin-bottom: 12px;
+    box-shadow: 0 6px 18px rgba(2, 6, 23, 0.04);
+}
+
+h1,
+h2
+{
+    margin: 0 0 8px 0;
+    font-weight: 600
+}
+
+p
+{
+    margin: 6px 0
+}
+
+label
+{
+    display: block;
+    margin: 8px 0 4px 0;
+    font-size: 0.95rem
+}
+
+input[type=text],
+input[type=password],
+input[type=date],
+select,
+textarea
+{
+    width: 100%;
+    box-sizing: border-box;
+    padding: 10px;
+    border: 1px solid #e6eef0;
+    border-radius: 8px;
+    font-size: 1rem
+}
+
+button,
+.btn
+{
+    display: inline-block;
+    padding: 12px 14px;
+    border-radius: 10px;
+    border: none;
+    background: var(--accent);
+    color: white;
+    font-weight: 600;
+    width: 100%;
+    font-size: 1rem
+}
+
+button.secondary
+{
+    background: #e2e8f0;
+    color: #0f172a
+}
+
+table
+{
+    width: 100%;
+    border-collapse: collapse;
+    margin-top: 8px;
+    font-size: 0.95rem
+}
+
+th,
+td
+{
+    padding: 8px;
+    border-bottom: 1px solid #e6eef0;
+    text-align: left
+}
+
+img
+{
+    max-width: 100%;
+    height: auto;
+    border-radius: 8px
+}
+
+.muted
+{
+    color: var(--muted);
+    font-size: 0.95rem
+}
+
+.status-pending
+{
+    color: orange
+}
+
+.status-approved
+{
+    color: var(--success)
+}
+
+.status-rejected
+{
+    color: var(--danger)
+}
+
+.notice
+{
+    padding: 10px;
+    border-radius: 8px;
+    background: #f1f5f9;
+    color: #0f172a
+}
+
+.modal
+{
+    position: fixed;
+    left: 0;
+    top: 0;
+    width: 100%;
+    height: 100%;
+    display: none;
+    align-items: center;
+    justify-content: center;
+    background: rgba(2, 6, 23, 0.5);
+}
+
+.modal .modal-content
+{
+    width: 92%;
+    max-width: 420px
+}
+
+/* make small interactive targets comfortable */
+button,
+input,
+select,
+textarea
+{
+    touch-action: manipulation
+}
+
+/* responsive table wrapper */
+.table-wrap
+{
+    overflow-x: auto
+}
