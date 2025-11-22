@@ -170,6 +170,16 @@ img
     max-width: 420px
 }
 
+/* Ensure modal content respects viewport and wraps long text */
+.modal .modal-content
+{
+    box-sizing: border-box;
+    padding: 12px;
+    overflow-wrap: anywhere;
+    word-break: break-word;
+    white-space: normal;
+}
+
 /* make small interactive targets comfortable */
 button,
 input,

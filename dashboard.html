@@ -72,19 +72,14 @@
                 /* Black w/ opacity */
             }
 
-            .modal-content {
+            /* Scoped local modal styling (no longer applied to global app-modal) */
+            #myModal .modal-content {
                 background-color: #fefefe;
                 margin: 15% auto;
-                /* 15% from the top and centered */
                 padding: 20px;
                 border: 1px solid #888;
                 width: 80%;
-                /* Could be more or less, depending on screen size */
                 max-width: 500px;
-                max-width: 500px;
-                border-radius: 8px;
-                text-align: center;
-                position: relative;
                 border-radius: 8px;
                 text-align: center;
                 position: relative;
@@ -120,25 +115,18 @@
             }
         </style>
         <link rel="stylesheet" href="/css/mobile.css">
+        <script src="/js/ui.js"></script>
     </head>
 
     <body>
         <div id="message-container"></div>
 
-        <!-- Modal Overlay -->
-        <div id="myModal" class="modal">
-            <!-- Modal content -->
-            <div class="modal-content">
-                <span class="close-button">&times;</span>
-                <p id="modal-message"></p>
-                <button id="modal-ok-button">Okay</button>
-            </div>
-        </div>
+        <!-- Global app modal is injected by /js/ui.js -->
 
         <div class="container">
             <h1>Dashboard</h1>
-            <p>Welcome, <strong id="user-name"></strong>! | <a href="/logout">Logout</a><span
-                    id="admin-link-container"></span></p>
+            <p>Welcome, <strong id="user-name"></strong>! | <a href="/profile">Change Password</a> | <a
+                    href="/logout">Logout</a><span id="admin-link-container"></span></p>
 
             <!-- Attendance Marking Section -->
             <div class="section" id="attendance-section">
@@ -200,22 +188,7 @@
                 </table>
             </div>
 
-            <!-- Change Password Section -->
-            <div class="section">
-                <h2>Change Password</h2>
-                <form id="change-password-form">
-                    <label for="current-password-user">Current password:</label>
-                    <input type="password" id="current-password-user" name="old_password" required>
-                    <br><br>
-                    <label for="new-password-user">New password:</label>
-                    <input type="password" id="new-password-user" name="new_password" required>
-                    <br><br>
-                    <label for="confirm-new-password-user">Confirm new password:</label>
-                    <input type="password" id="confirm-new-password-user" name="confirm_new_password" required>
-                    <br><br>
-                    <button type="submit">Change Password</button>
-                </form>
-            </div>
+            <!-- personal change-password is available at /profile (header link) -->
 
             <!-- Attendance Records Section -->
             <div class="section">
@@ -250,10 +223,10 @@
                 const currentUser = await userRes.json();
                 document.getElementById( 'user-name' ).textContent = currentUser.name;
 
-                if ( currentUser.role === 'employee_admin' || currentUser.role === 'owner_admin' )
+                if ( currentUser.role === 'manager' || currentUser.role === 'owner' )
                 {
                     // Unified dashboard — admin UI is available at /dashboard
-                    document.getElementById( 'admin-link-container' ).innerHTML = ' | <a href="/dashboard">Admin Panel</a>';
+                    document.getElementById( 'admin-link-container' ).innerHTML = ' | <a href="/admin">Admin Panel</a>';
                 }
 
                 // Load all parts of the dashboard
@@ -265,7 +238,7 @@
 
             async function loadAttendanceMarker ( currentUser )
             {
-                if ( currentUser.role === 'owner_admin' ) return; // Owner admin doesn't mark attendance
+                if ( currentUser.role === 'owner' ) return; // Owner doesn't mark attendance
 
                 const loadingMessage = document.getElementById( 'loading-message' );
                 const permissionDeniedMessage = document.getElementById( 'permission-denied-message' );
@@ -419,63 +392,19 @@
                 document.getElementById( 'leave-balance' ).textContent = balance;
             }
 
-            // Modal Logic
-            const modal = document.getElementById( 'myModal' );
-            const modalMessage = document.getElementById( 'modal-message' );
-            const modalOkButton = document.getElementById( 'modal-ok-button' );
-            const closeButton = document.querySelector( '.close-button' );
-
+            // Modal wrapper: use shared `showAppModal` when available to ensure consistent positioning
             function showModal ( message, type )
             {
-                modalMessage.textContent = message;
-                // Optional: Add classes for styling success/error messages
-                modalMessage.className = type === 'success' ? 'modal-success' : 'modal-error';
-                modal.style.display = 'block';
-            }
-
-            function hideModal ()
-            {
-                modal.style.display = 'none';
-            }
-
-            closeButton.addEventListener( 'click', hideModal );
-            modalOkButton.addEventListener( 'click', hideModal );
-            window.addEventListener( 'click', ( event ) =>
-            {
-                if ( event.target == modal )
+                if ( window.showAppModal )
                 {
-                    hideModal();
+                    window.showAppModal( message, type );
+                    return;
                 }
-            } );
-
-            // Change password handler (for regular users)
-            const changePasswordForm = document.getElementById( 'change-password-form' );
-            if ( changePasswordForm )
-            {
-                changePasswordForm.addEventListener( 'submit', async ( e ) =>
-                {
-                    e.preventDefault();
-                    const old_password = document.getElementById( 'current-password-user' ).value;
-                    const new_password = document.getElementById( 'new-password-user' ).value;
-                    const confirm = document.getElementById( 'confirm-new-password-user' ).value;
-                    if ( new_password !== confirm ) { showModal( 'New passwords do not match.', 'error' ); return; }
-                    try
-                    {
-                        const res = await fetch( '/user/change-password', {
-                            method: 'POST',
-                            headers: { 'Content-Type': 'application/json' },
-                            body: JSON.stringify( { old_password, new_password } )
-                        } );
-                        const result = await res.json();
-                        if ( res.ok && result.success ) { showModal( result.message, 'success' ); changePasswordForm.reset(); }
-                        else { showModal( result.message || 'Failed to change password.', 'error' ); }
-                    } catch ( err )
-                    {
-                        console.error( err );
-                        showModal( 'Error changing password.', 'error' );
-                    }
-                } );
+                // Fallback for very old pages: simple alert
+                alert( message );
             }
+
+            // Personal change-password moved to /profile to avoid duplication across pages.
 
             document.addEventListener( 'DOMContentLoaded', () =>
             {

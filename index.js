@@ -18,8 +18,8 @@ if ( !fs.existsSync( selfiesDir ) )
 }
 
 const users = [
-    { name: 'smita', password: '111', role: 'owner_admin' },
-    { name: 'dinesh', password: '111', role: 'employee_admin' },
+    { name: 'smita', password: '111', role: 'owner' },
+    { name: 'dinesh', password: '111', role: 'manager' },
     { name: 'manuj', password: '111', role: 'employee' },
     { name: 'atul', password: '111', role: 'employee' },
     { name: 'kamini', password: '111', role: 'employee' },
@@ -71,6 +71,9 @@ db.serialize( () =>
         db.run( "ALTER TABLE users ADD COLUMN leave_balance REAL DEFAULT 0", () => { } );
         db.run( "ALTER TABLE users ADD COLUMN leave_balance_last_updated TEXT", () => { } );
         db.run( "ALTER TABLE users ADD COLUMN join_date TEXT DEFAULT \'2025-01-01\'", () => { } );
+        // Migrate legacy role names if present
+        db.run( "UPDATE users SET role = 'owner' WHERE role = 'owner_admin'", () => { } );
+        db.run( "UPDATE users SET role = 'manager' WHERE role = 'employee_admin'", () => { } );
     } );
 
     const stmtUsers = db.prepare( 'INSERT OR IGNORE INTO users (name, password, role, join_date) VALUES (?, ?, ?, ?)' );
@@ -91,7 +94,7 @@ db.serialize( () =>
     // Attendance tables
     users.forEach( user =>
     {
-        if ( user.role !== 'owner_admin' )
+        if ( user.role !== 'owner' )
         { // Owner admin does not mark attendance
             db.run( `CREATE TABLE IF NOT EXISTS attendance_${ user.name } (
                 date TEXT PRIMARY KEY, 
@@ -113,7 +116,7 @@ db.serialize( () =>
     )`);
 
     // --- SERVER STARTUP LEAVE ACCRUAL ---
-    db.all( 'SELECT name, join_date, leave_balance, leave_balance_last_updated FROM users WHERE role != ?', [ 'owner_admin' ], async ( err, employees ) =>
+    db.all( 'SELECT name, join_date, leave_balance, leave_balance_last_updated FROM users WHERE role != ?', [ 'owner' ], async ( err, employees ) =>
     {
         if ( err )
         {
@@ -247,7 +250,7 @@ function requireLogin ( req, res, next )
 
 function requireAdmin ( req, res, next )
 {
-    if ( req.session.user && ( req.session.user.role === 'owner_admin' || req.session.user.role === 'employee_admin' ) )
+    if ( req.session.user && ( req.session.user.role === 'owner' || req.session.user.role === 'manager' ) )
     {
         next();
     } else
@@ -319,12 +322,20 @@ app.get( '/user/me', requireLogin, ( req, res ) =>
     res.json( req.session.user );
 } );
 
+// Profile page (personal settings) - available to all authenticated users
+app.get( '/profile', requireLogin, ( req, res ) =>
+{
+    return res.sendFile( path.join( __dirname, 'profile.html' ) );
+} );
+
 // --- EMPLOYEE ROUTES ---
 app.get( '/dashboard', requireLogin, ( req, res ) =>
 {
     // Unified dashboard route: serve admin UI to admins, employee UI to others
     const role = req.session.user && req.session.user.role;
-    if ( role === 'owner_admin' || role === 'employee_admin' )
+    // Owners get the full admin UI (they don't mark attendance); managers are employees and should use the
+    // regular dashboard so they can mark attendance but still access admin APIs via links.
+    if ( role === 'owner' )
     {
         return res.sendFile( path.join( __dirname, 'admin.html' ) );
     }
@@ -334,8 +345,8 @@ app.get( '/dashboard', requireLogin, ( req, res ) =>
 app.get( '/attendance/status', requireLogin, ( req, res ) =>
 {
     const user = req.session.user;
-    // Owner/admin accounts do not have attendance records — return friendly message
-    if ( user && user.role === 'owner_admin' )
+    // Owner accounts do not have attendance records — return friendly message
+    if ( user && user.role === 'owner' )
     {
         return res.json( { status: 'not_applicable', message: 'Attendance is not applicable for owner/admin accounts.' } );
     }
@@ -482,8 +493,8 @@ app.get( '/leaves', requireLogin, ( req, res ) =>
 // --- ADMIN ROUTES ---
 app.get( '/admin', requireAdmin, ( req, res ) =>
 {
-    // Redirect legacy /admin UI route to unified dashboard
-    return res.redirect( '/dashboard' );
+    // Serve admin UI to owners and managers
+    return res.sendFile( path.join( __dirname, 'admin.html' ) );
 } );
 
 app.get( '/admin/users', requireAdmin, ( req, res ) =>
@@ -515,10 +526,10 @@ app.post( '/admin/users/add', requireAdmin, ( req, res ) =>
         if ( row ) return res.status( 400 ).json( { success: false, message: 'That username is already taken. Please choose a different one.' } );
 
         const joinDate = moment().format( 'YYYY-MM-DD' );
-        // Prevent employee_admin from creating owner_admin
-        if ( req.session.user && req.session.user.role === 'employee_admin' && userRole === 'owner_admin' )
+        // Prevent managers from creating owners or other managers
+        if ( req.session.user && req.session.user.role === 'manager' && ( userRole === 'owner' || userRole === 'manager' ) )
         {
-            return res.status( 403 ).json( { success: false, message: 'Only the Owner Admin can create another Owner Admin.' } );
+            return res.status( 403 ).json( { success: false, message: 'Only the Owner can create Owners or Managers.' } );
         }
 
         try
@@ -528,8 +539,8 @@ app.post( '/admin/users/add', requireAdmin, ( req, res ) =>
             {
                 if ( insertErr ) return res.status( 500 ).json( { success: false, message: insertErr.message } );
 
-                // Create attendance table for the user unless owner_admin
-                if ( userRole !== 'owner_admin' )
+                // Create attendance table for the user unless owner
+                if ( userRole !== 'owner' )
                 {
                     db.run( `CREATE TABLE IF NOT EXISTS attendance_${ username } (
                     date TEXT PRIMARY KEY,
@@ -588,9 +599,9 @@ app.get( '/admin/leaves', requireAdmin, ( req, res ) =>
         if ( err ) return res.status( 500 ).json( { error: err.message } );
 
         let filteredRows = rows;
-        if ( user.role === 'employee_admin' )
+        if ( user.role === 'manager' )
         {
-            // Employee admin sees only leaves from regular employees
+            // Manager sees only leaves from regular employees
             filteredRows = rows.filter( row => row.role === 'employee' );
         }
 
@@ -642,14 +653,14 @@ app.post( '/admin/leaves/action', requireAdmin, ( req, res ) =>
         if ( err || !leave ) return res.status( 404 ).send( 'Leave request not found.' );
 
         // Check permissions
-        if ( admin.role === 'employee_admin' && leave.role !== 'employee' )
+        if ( admin.role === 'manager' && leave.role !== 'employee' )
         {
             return res.status( 403 ).send( 'You do not have permission to approve or reject this leave request.' );
         }
 
-        if ( admin.role !== 'owner_admin' && leave.role === 'employee_admin' )
+        if ( admin.role !== 'owner' && leave.role === 'manager' )
         {
-            return res.status( 403 ).send( 'Only the Owner Admin may approve or reject this leave request.' );
+            return res.status( 403 ).send( 'Only the Owner may approve or reject this leave request.' );
         }
 
         if ( status === 'approved' )
@@ -693,14 +704,13 @@ app.post( '/admin/users/reset-password', requireAdmin, ( req, res ) =>
         const targetRole = row.role;
 
         // Permission checks
-        if ( requesterRole === 'owner_admin' )
+        if ( requesterRole === 'owner' )
         {
-            // owner_admin can reset anyone (owner_admin, employee_admin, employee)
-            // no additional checks needed
-        } else if ( requesterRole === 'employee_admin' )
+            // owner can reset anyone
+        } else if ( requesterRole === 'manager' )
         {
-            // employee_admin can reset employee_admins and employees, but not owner_admins
-            if ( targetRole === 'owner_admin' ) return res.status( 403 ).json( { success: false, message: 'You do not have permission to reset that user\'s password.' } );
+            // manager can reset only regular employees, not other managers or owners
+            if ( targetRole !== 'employee' ) return res.status( 403 ).json( { success: false, message: 'You do not have permission to reset that user\'s password.' } );
         } else
         {
             return res.status( 403 ).json( { success: false, message: 'You are not authorized to perform this action.' } );
@@ -796,4 +806,31 @@ app.use( ( err, req, res, next ) =>
     }
 } );
 // Export the Express app so an HTTPS server can wrap it
+// Export the Express app so other wrappers can reuse it
 module.exports = app;
+
+// If this file is run directly, start an HTTPS server using local certs.
+// This allows `node index.js` to start the app over HTTPS for local testing.
+if ( require.main === module )
+{
+    const https = require( 'https' );
+    const os = require( 'os' );
+    const keyPath = path.join( __dirname, '192.168.1.9+1-key.pem' );
+    const certPath = path.join( __dirname, '192.168.1.9+1.pem' );
+    const PORT = process.env.PORT || 3000;
+
+    if ( fs.existsSync( keyPath ) && fs.existsSync( certPath ) )
+    {
+        const key = fs.readFileSync( keyPath );
+        const cert = fs.readFileSync( certPath );
+        https.createServer( { key, cert }, app ).listen( PORT, '0.0.0.0', () =>
+        {
+            console.log( `HTTPS server running at https://${ os.hostname() }:${ PORT } (listening on 0.0.0.0:${ PORT })` );
+            console.log( `Access by IP: https://192.168.1.9:${ PORT }` );
+        } );
+    } else
+    {
+        console.error( 'TLS certificate or key not found. Please ensure the files 192.168.1.9+1-key.pem and 192.168.1.9+1.pem exist in the project root.' );
+        process.exit( 1 );
+    }
+}
