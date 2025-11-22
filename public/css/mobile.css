@@ -192,5 +192,27 @@ textarea
 /* responsive table wrapper */
 .table-wrap
 {
-    overflow-x: auto
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+}
+
+/* Prevent long words/values from expanding layout */
+td,
+th
+{
+    overflow-wrap: anywhere;
+    word-break: break-word;
+}
+
+.break-anywhere
+{
+    overflow-wrap: anywhere;
+    word-break: break-word;
+}
+
+/* Strong fallback to ensure app modal content doesn't expand beyond viewport */
+#app-modal .modal-content,
+.modal .modal-content
+{
+    max-width: calc(100% - 32px);
 }
