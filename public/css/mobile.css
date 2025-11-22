@@ -7,6 +7,8 @@
     --success: #16a34a;
     --danger: #dc2626;
     --card: #f8fafc;
+    /* Central container width used across the app; change to adjust overall mobile/desktop layout */
+    --container-max-width: 420px;
 }
 
 html,
@@ -31,7 +33,7 @@ body
 .container
 {
     width: 100%;
-    max-width: 420px;
+    max-width: var(--container-max-width);
     /* mobile width */
     background: transparent;
 }
@@ -166,13 +168,9 @@ img
 
 .modal .modal-content
 {
+    /* Keep modal narrow on small screens and ensure it doesn't exceed the page container width on larger screens */
     width: 92%;
-    max-width: 420px
-}
-
-/* Ensure modal content respects viewport and wraps long text */
-.modal .modal-content
-{
+    max-width: min(var(--container-max-width), calc(100% - 32px));
     box-sizing: border-box;
     padding: 12px;
     overflow-wrap: anywhere;
@@ -210,9 +208,8 @@ th
     word-break: break-word;
 }
 
-/* Strong fallback to ensure app modal content doesn't expand beyond viewport */
-#app-modal .modal-content,
-.modal .modal-content
+/* Strong fallback kept minimal — ensure app modal also respects container width */
+#app-modal .modal-content
 {
-    max-width: calc(100% - 32px);
+    max-width: min(var(--container-max-width), calc(100% - 32px));
 }
