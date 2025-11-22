@@ -183,7 +183,8 @@ function computeTotalTimeForRow ( row )
 function formatDateForDisplay ( date )
 {
     if ( !date ) return null;
-    return moment( date, 'YYYY-MM-DD' ).format( 'DD-MMMM-YYYY' );
+    // Compact date for tables: e.g. 6-Dec-25
+    return moment( date, 'YYYY-MM-DD' ).format( 'D-MMM-YY' );
 }
 
 // --- LEAVE ACCRUAL LOGIC (ON STARTUP) ---

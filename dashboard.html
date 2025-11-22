@@ -72,18 +72,6 @@
                 /* Black w/ opacity */
             }
 
-            /* Scoped local modal styling (no longer applied to global app-modal) */
-            #myModal .modal-content {
-                background-color: #fefefe;
-                margin: 15% auto;
-                padding: 20px;
-                border: 1px solid #888;
-                width: 80%;
-                max-width: 500px;
-                border-radius: 8px;
-                text-align: center;
-                position: relative;
-            }
 
             .close-button {
                 color: #aaa;
@@ -100,26 +88,14 @@
                 cursor: pointer;
             }
 
-            #modal-ok-button {
-                background-color: #4CAF50;
-                color: white;
-                padding: 10px 20px;
-                border: none;
-                border-radius: 5px;
-                cursor: pointer;
-                margin-top: 15px;
-            }
-
-            #modal-ok-button:hover {
-                background-color: #45a049;
-            }
+            /* Global modal is provided by /js/ui.js; local modal markup removed to avoid duplicate styles. */
         </style>
         <link rel="stylesheet" href="/css/mobile.css">
         <script src="/js/ui.js"></script>
     </head>
 
     <body>
-        <div id="message-container"></div>
+        <div></div>
 
         <!-- Global app modal is injected by /js/ui.js -->
 
@@ -153,7 +129,7 @@
             <!-- Leave Management Section -->
             <div class="section">
                 <h2>Leave Management</h2>
-                <div id="leave-balance-section">
+                <div>
                     <h3>Your Leave Balance</h3>
                     <p>Current Balance: <strong id="leave-balance">Loading...</strong></p>
                 </div>
@@ -175,7 +151,7 @@
                 <hr>
                 <h3>Your Leave Requests</h3>
                 <div class="table-wrap">
-                    <table id="leaves-table">
+                    <table>
                         <thead>
                             <tr>
                                 <th>Start Date</th>
@@ -196,7 +172,7 @@
             <div class="section">
                 <h2>Your Attendance Records</h2>
                 <div class="table-wrap">
-                    <table id="attendance-table">
+                    <table>
                         <thead>
                             <tr>
                                 <th>Date</th>
@@ -251,16 +227,123 @@
                 const actionButton = document.getElementById( 'action-button' );
                 const video = document.getElementById( 'video' );
                 const canvas = document.getElementById( 'canvas' );
-                let stream;
+                let stream = null;
+                let idleTimer = null;
+                let hiddenStopTimer = null;
 
+                // Single-action button flow (no file upload):
+                // The existing `actionButton` is used for both opening the camera and capturing.
+                // Initial caption will be 'Open Camera'. After opening, it becomes 'Mark In' or 'Mark Out'.
+                let pendingAction = null; // '/mark-in' or '/mark-out'
+
+                // Helper to set the 'open camera' caption according to the pending action
+                function setOpenCaption ()
+                {
+                    if ( pendingAction === '/mark-in' ) actionButton.textContent = 'Open camera to Mark In';
+                    else if ( pendingAction === '/mark-out' ) actionButton.textContent = 'Open camera to Mark Out';
+                    else actionButton.textContent = 'Open Camera';
+                }
+
+                setOpenCaption();
+
+                // Utility: set idle timer to close camera after 20s of inactivity
+                function resetIdleTimer ()
+                {
+                    if ( idleTimer ) clearTimeout( idleTimer );
+                    idleTimer = setTimeout( () => { stopStream(); }, 20000 );
+                }
+
+                // Open camera on demand
+                async function openCamera ()
+                {
+                    try
+                    {
+                        // If already open, just reset timer
+                        if ( stream )
+                        {
+                            resetIdleTimer();
+                            return;
+                        }
+                        video.style.display = 'block';
+                        const s = await navigator.mediaDevices.getUserMedia( { video: { facingMode: 'user' } } );
+                        stream = s;
+                        video.srcObject = stream;
+                        // Wait for first usable frame (playing or loadeddata) with a short timeout
+                        await new Promise( resolve =>
+                        {
+                            let settled = false;
+                            function done () { if ( settled ) return; settled = true; cleanup(); resolve(); }
+                            function cleanup () { video.removeEventListener( 'playing', done ); video.removeEventListener( 'loadeddata', done ); clearTimeout( timer ); }
+                            video.addEventListener( 'playing', done );
+                            video.addEventListener( 'loadeddata', done );
+                            const timer = setTimeout( () => { done(); }, 1500 );
+                        } );
+                        resetIdleTimer();
+                    } catch ( e )
+                    {
+                        console.error( 'Could not open camera', e );
+                        showModal( 'Unable to access camera. Please check permissions and try again.', 'error' );
+                    }
+                }
+
+                function stopStream ()
+                {
+                    try
+                    {
+                        if ( idleTimer ) { clearTimeout( idleTimer ); idleTimer = null; }
+                        if ( hiddenStopTimer ) { clearTimeout( hiddenStopTimer ); hiddenStopTimer = null; }
+                        if ( stream )
+                        {
+                            stream.getTracks().forEach( t => { try { t.stop(); } catch ( e ) { /* ignore */ } } );
+                            stream = null;
+                        }
+                        video.srcObject = null;
+                        video.style.display = 'none';
+                        // Reset action button caption to the 'open camera' instruction for the pending action
+                        if ( pendingAction === '/mark-in' ) actionButton.textContent = 'Open camera to Mark In';
+                        else if ( pendingAction === '/mark-out' ) actionButton.textContent = 'Open camera to Mark Out';
+                    } catch ( e ) { console.error( 'Error stopping stream', e ); }
+                }
+
+                // Capture image from video to dataURL
+                function captureFromVideo ()
+                {
+                    const ctx = canvas.getContext( '2d' );
+                    // Use natural video size if available else fallback
+                    const w = video.videoWidth || 400;
+                    const h = video.videoHeight || 300;
+                    canvas.width = w;
+                    canvas.height = h;
+                    ctx.drawImage( video, 0, 0, w, h );
+                    return canvas.toDataURL( 'image/jpeg', 0.7 );
+                }
+
+                // Validate dataURL is not blank/too-small
+                function validateDataUrl ( dataUrl )
+                {
+                    if ( !dataUrl || typeof dataUrl !== 'string' ) return false;
+                    // Simple length check (reject tiny images)
+                    if ( dataUrl.length < 5000 ) return false;
+                    // Further pixel-sample test (optional, lightweight)
+                    try
+                    {
+                        const tmpImg = new Image();
+                        // synchronous canvas check: draw into canvas and sample pixels
+                        // Since Image loads asynchronously, use a quick heuristic instead: ensure base64 payload exists
+                        const base64 = dataUrl.split( ',' )[ 1 ] || '';
+                        if ( base64.length < 2000 ) return false;
+                        return true;
+                    } catch ( e ) { return true; }
+                }
+
+                // No file-upload fallback: captures must be from live camera.
+
+                // Don't auto-acquire camera on load — only get geolocation and status
                 try
                 {
                     const position = await new Promise( ( resolve, reject ) => navigator.geolocation.getCurrentPosition( resolve, reject ) );
                     document.getElementById( 'latitude' ).value = position.coords.latitude;
                     document.getElementById( 'longitude' ).value = position.coords.longitude;
-
-                    stream = await navigator.mediaDevices.getUserMedia( { video: true } );
-                    video.srcObject = stream;
 
                     const statusResponse = await fetch( '/attendance/status' );
                     const { status } = await statusResponse.json();
@@ -268,14 +351,14 @@
                     if ( status === 'not_marked_in' )
                     {
                         form.action = '/mark-in';
-                        actionButton.textContent = 'Mark In';
-                        video.style.display = 'block';
+                        pendingAction = '/mark-in';
+                        setOpenCaption();
                         form.style.display = 'block';
                     } else if ( status === 'marked_in' )
                     {
                         form.action = '/mark-out';
-                        actionButton.textContent = 'Mark Out';
-                        video.style.display = 'block';
+                        pendingAction = '/mark-out';
+                        setOpenCaption();
                         form.style.display = 'block';
                     } else if ( status === 'marked_out' )
                     {
@@ -290,16 +373,64 @@
                     loadingMessage.style.display = 'none';
                 }
 
-                form.addEventListener( 'submit', () =>
+                // Single-button behavior: click opens camera (if closed) or captures & submits (if open)
+                actionButton.addEventListener( 'click', async ( ev ) =>
                 {
-                    if ( stream )
+                    ev.preventDefault();
+                    try
                     {
-                        const context = canvas.getContext( '2d' );
-                        context.drawImage( video, 0, 0, 400, 300 );
-                        document.getElementById( 'selfie' ).value = canvas.toDataURL( 'image/jpeg', 0.7 );
-                        stream.getTracks().forEach( track => track.stop() );
+                        // If camera is not open, open and change caption to action
+                        if ( !stream )
+                        {
+                            await openCamera();
+                            // update caption to indicate capture action
+                            if ( pendingAction === '/mark-in' ) actionButton.textContent = 'Mark In';
+                            else if ( pendingAction === '/mark-out' ) actionButton.textContent = 'Mark Out';
+                            return;
+                        }
+
+                        // Camera is open: capture and submit
+                        if ( video.readyState < 2 || video.videoWidth === 0 )
+                        {
+                            showModal( 'Camera is warming up. Please wait a moment and try again.', 'error' );
+                            return;
+                        }
+                        const dataUrl = captureFromVideo();
+                        if ( !validateDataUrl( dataUrl ) )
+                        {
+                            showModal( 'Captured image looks empty or too small. Please try again.', 'error' );
+                            return;
+                        }
+
+                        document.getElementById( 'selfie' ).value = dataUrl;
+                        // stop camera after successful capture
+                        stopStream();
+                        // submit the form normally
+                        form.submit();
+                    } catch ( err )
+                    {
+                        console.error( 'Error during action button flow', err );
+                        showModal( 'Unable to capture selfie. Please try again.', 'error' );
                     }
                 } );
+
+                // Visibility handling: stop camera after 20s of being hidden
+                document.addEventListener( 'visibilitychange', () =>
+                {
+                    if ( document.hidden )
+                    {
+                        if ( hiddenStopTimer ) clearTimeout( hiddenStopTimer );
+                        hiddenStopTimer = setTimeout( () => { stopStream(); }, 20000 );
+                    } else
+                    {
+                        if ( hiddenStopTimer ) { clearTimeout( hiddenStopTimer ); hiddenStopTimer = null; }
+                        // do not auto-reopen camera on visibilitychange — user action required
+                    }
+                } );
+
+                // Ensure camera is stopped when the page is being unloaded
+                window.addEventListener( 'pagehide', stopStream );
+                window.addEventListener( 'beforeunload', stopStream );
             }
 
             async function loadAttendanceHistory ()
