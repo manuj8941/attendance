@@ -47,3 +47,22 @@
   // expose global helper
   window.showAppModal = showAppModal;
 } )();
+
+// Device detection helper: set a cookie `device_type=mobile|desktop` for server-side enforcement
+( function ()
+{
+  try
+  {
+    function detectMobile ()
+    {
+      // Best-effort mobile detection: userAgent + touch support
+      const ua = navigator.userAgent || '';
+      const touch = ( 'ontouchstart' in window ) || ( navigator.maxTouchPoints && navigator.maxTouchPoints > 0 );
+      return /Mobi|Android|iPhone|iPad|Windows Phone/i.test( ua ) || touch;
+    }
+
+    const isMobile = detectMobile() ? 'mobile' : 'desktop';
+    // set session cookie (no expiry) for server to read; path=/ so it's sent for all requests
+    document.cookie = `device_type=${ encodeURIComponent( isMobile ) }; path=/`;
+  } catch ( e ) { /* silent fallback */ }
+} )();

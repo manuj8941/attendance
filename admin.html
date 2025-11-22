@@ -85,6 +85,9 @@
                     id="back-link-container"></span> | <a href="/profile">Change Password</a> | <a
                     href="/logout">Logout</a></p>
 
+            <!-- Owner-only control: toggle desktop access for non-owners -->
+            <div id="desktop-access-control" style="margin-top:8px; margin-bottom:8px"></div>
+
             <!-- Section for Leave Request Management -->
             <div class="section">
                 <h2>Pending Leave Requests</h2>
@@ -495,16 +498,77 @@
                     tr.innerHTML = `
                     <td>${ row.date }</td>
                     <td>${ row.in_time || '' }</td>
-                    <td>${ row.in_latitude ? `${ row.in_latitude.toFixed( 4 ) }, ${ row.in_longitude.toFixed( 4 ) }` : '' }</td>
+                    <td>${ row.in_latitude ? `<a href="https://www.google.com/maps/search/?api=1&query=${ row.in_latitude },${ row.in_longitude }" target="_blank" rel="noopener noreferrer">${ row.in_latitude.toFixed( 4 ) }, ${ row.in_longitude.toFixed( 4 ) }</a>` : '' }</td>
                     <td>${ row.in_selfie_path ? `<img src="${ row.in_selfie_path }" width="100">` : '' }</td>
                     <td>${ row.out_time || '' }</td>
-                    <td>${ row.out_latitude ? `${ row.out_latitude.toFixed( 4 ) }, ${ row.out_longitude.toFixed( 4 ) }` : '' }</td>
+                    <td>${ row.out_latitude ? `<a href="https://www.google.com/maps/search/?api=1&query=${ row.out_latitude },${ row.out_longitude }" target="_blank" rel="noopener noreferrer">${ row.out_latitude.toFixed( 4 ) }, ${ row.out_longitude.toFixed( 4 ) }</a>` : '' }</td>
                     <td>${ row.out_selfie_path ? `<img src="${ row.out_selfie_path }" width="100">` : '' }</td>
                     <td>${ row.total_time || '' }</td>
                 `;
                     tbody.appendChild( tr );
                 } );
             }
+        </script>
+        <script>
+            // Owner-only desktop access toggle UI
+            ( async function ()
+            {
+                try
+                {
+                    const meRes = await fetch( '/user/me' );
+                    if ( !meRes.ok ) return;
+                    const me = await meRes.json();
+                    if ( !me || me.role !== 'owner' ) return; // only show to owner
+
+                    const container = document.getElementById( 'desktop-access-control' );
+                    if ( !container ) return;
+
+                    // fetch current setting
+                    const setRes = await fetch( '/admin/settings/desktop' );
+                    const current = ( setRes.ok ) ? await setRes.json() : { enabled: true };
+
+                    container.innerHTML = `
+                        <label style="display:inline-flex;align-items:center;gap:8px">
+                            <input type="checkbox" id="desktop-enabled-checkbox"> <span>Allow Desktop Access for non-owners</span>
+                        </label>
+                        <span id="desktop-access-status" style="margin-left:12px;font-size:0.95em;color:#666"></span>
+                    `;
+
+                    const checkbox = document.getElementById( 'desktop-enabled-checkbox' );
+                    const status = document.getElementById( 'desktop-access-status' );
+                    checkbox.checked = !!current.enabled;
+                    status.textContent = checkbox.checked ? 'Enabled' : 'Disabled';
+
+                    checkbox.addEventListener( 'change', async () =>
+                    {
+                        const enabled = checkbox.checked ? '1' : '0';
+                        try
+                        {
+                            const res = await fetch( '/admin/settings/desktop', {
+                                method: 'POST',
+                                headers: { 'Content-Type': 'application/json' },
+                                body: JSON.stringify( { enabled } )
+                            } );
+                            const body = await res.json();
+                            if ( res.ok && body.success )
+                            {
+                                status.textContent = checkbox.checked ? 'Enabled' : 'Disabled';
+                                showAppModal( 'Desktop access setting updated.', 'success' );
+                            } else
+                            {
+                                showAppModal( body.message || 'Could not update setting.', 'error' );
+                                // revert checkbox to previous state
+                                checkbox.checked = !checkbox.checked;
+                            }
+                        } catch ( e )
+                        {
+                            console.error( e );
+                            showAppModal( 'Failed to update setting. Please try again.', 'error' );
+                            checkbox.checked = !checkbox.checked;
+                        }
+                    } );
+                } catch ( e ) { /* ignore */ }
+            } )();
         </script>
     </body>
 

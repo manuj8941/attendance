@@ -22,6 +22,7 @@
         <button type="submit">Sign in</button>
       </form>
     </div>
+    <script src="/js/ui.js"></script>
     <script>
       // Fetch any server-side login error (flash) and show it
       ( async function ()
@@ -41,6 +42,27 @@
         {
           // ignore
         }
+      } )();
+
+      // If redirected due to desktop block, show a friendly modal
+      ( function ()
+      {
+        try
+        {
+          const params = new URLSearchParams( window.location.search );
+          if ( params.get( 'desktop_blocked' ) === '1' )
+          {
+            if ( window.showAppModal )
+            {
+              showAppModal( 'Desktop access is currently disabled by the Owner. Please use a mobile device to sign in, or contact the Owner to change this setting.', 'error' );
+            } else
+            {
+              const el = document.getElementById( 'login-error' );
+              el.textContent = 'Desktop access is currently disabled by the Owner. Please use a mobile device to sign in.';
+              el.style.display = 'block';
+            }
+          }
+        } catch ( e ) { /* ignore */ }
       } )();
     </script>
   </body>

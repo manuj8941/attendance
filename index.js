@@ -115,6 +115,18 @@ db.serialize( () =>
         approved_by TEXT
     )`);
 
+    // Settings table for simple app-wide flags (e.g. desktop access toggle)
+    db.run( "CREATE TABLE IF NOT EXISTS settings (name TEXT PRIMARY KEY, value TEXT)", ( err ) =>
+    {
+        if ( err ) console.error( 'Error creating settings table', err && err.message );
+        else
+        {
+            // defaults: desktop access ON by default
+            db.run( "INSERT OR IGNORE INTO settings (name, value) VALUES (?, ?)", [ 'desktop_enabled', '1' ] );
+            db.run( "INSERT OR IGNORE INTO settings (name, value) VALUES (?, ?)", [ 'desktop_disabled_at', '' ] );
+        }
+    } );
+
     // --- SERVER STARTUP LEAVE ACCRUAL ---
     db.all( 'SELECT name, join_date, leave_balance, leave_balance_last_updated FROM users WHERE role != ?', [ 'owner' ], async ( err, employees ) =>
     {
@@ -259,6 +271,70 @@ function requireAdmin ( req, res, next )
     }
 }
 
+// --- DEVICE ACCESS HELPERS & ENFORCEMENT ---
+function getCookieValue ( req, name )
+{
+    const header = req.headers && req.headers.cookie;
+    if ( !header ) return null;
+    const pairs = header.split( ';' ).map( p => p.trim() );
+    for ( const p of pairs )
+    {
+        const parts = p.split( '=' );
+        if ( parts[ 0 ] === name ) return decodeURIComponent( parts.slice( 1 ).join( '=' ) );
+    }
+    return null;
+}
+
+function isRequestMobile ( req )
+{
+    // Preferred: client sets cookie `device_type=mobile|desktop` via client-side JS
+    const cookieVal = getCookieValue( req, 'device_type' );
+    if ( cookieVal ) return cookieVal === 'mobile';
+
+    // Fallback to UA sniffing (best-effort)
+    const ua = ( req.headers && req.headers[ 'user-agent' ] ) || '';
+    return /Mobi|Android|iPhone|iPad|Windows Phone/i.test( ua );
+}
+
+function enforceDeviceAccess ( req, res, next )
+{
+    // Only enforce for authenticated non-owner users. Let unauthenticated requests pass (so owner can login).
+    if ( !req.session || !req.session.user || req.session.user.role === 'owner' ) return next();
+
+    // Check current app-wide desktop flag
+    db.get( 'SELECT value FROM settings WHERE name = ?', [ 'desktop_enabled' ], ( err, row ) =>
+    {
+        if ( err )
+        {
+            console.error( 'Error reading desktop_enabled setting', err && err.message );
+            return next();
+        }
+        const enabled = row && row.value ? row.value : '1';
+        if ( enabled === '1' ) return next();
+
+        // desktop access is disabled; if request is from a desktop browser, block
+        const isMobile = isRequestMobile( req );
+        if ( isMobile ) return next();
+
+        // Block desktop user (non-owner)
+        // If it's an API/JSON request, return JSON; otherwise destroy session and redirect to login
+        const acceptsJson = req.headers && req.headers.accept && req.headers.accept.indexOf( 'application/json' ) !== -1;
+        if ( acceptsJson || req.xhr )
+        {
+            return res.status( 403 ).json( { error: 'Desktop access has been disabled by the Owner.' } );
+        }
+
+        // Destroy session and redirect to login with a flag so the UI can show a friendly message
+        req.session.destroy( () =>
+        {
+            return res.redirect( '/?desktop_blocked=1' );
+        } );
+    } );
+}
+
+// Register enforcement middleware after session/static configuration but before protected routes
+app.use( enforceDeviceAccess );
+
 // --- GENERAL & LOGIN ROUTES ---
 app.get( '/', ( req, res ) =>
 {
@@ -283,16 +359,43 @@ app.post( '/login', ( req, res ) =>
             req.session.loginError = 'Sorry — we had a problem signing you in. Please try again.';
             return res.redirect( '/' );
         }
-        if ( user && bcrypt.compareSync( ( password || '' ).toString(), user.password ) )
+        if ( user )
         {
-            // successful login -- clear any previous login error
-            req.session.user = { name: user.name, role: user.role };
-            if ( req.session.loginError ) delete req.session.loginError;
-            // Redirect all users to unified dashboard; the UI served at /dashboard
-            return res.redirect( '/dashboard' );
+            // If desktop access is disabled, prevent non-owner logins from desktop devices
+            db.get( 'SELECT value FROM settings WHERE name = ?', [ 'desktop_enabled' ], ( setErr, setRow ) =>
+            {
+                if ( setErr )
+                {
+                    console.error( 'Error reading settings during login:', setErr && setErr.message );
+                }
+                const enabled = setRow && setRow.value ? setRow.value : '1';
+                const isMobileReq = isRequestMobile( req );
+                if ( enabled === '0' && !isMobileReq && user.role !== 'owner' )
+                {
+                    // Show friendly message on the login page via query param
+                    req.session.loginError = null;
+                    return res.redirect( '/?desktop_blocked=1' );
+                }
+
+                if ( bcrypt.compareSync( ( password || '' ).toString(), user.password ) )
+                {
+                    // successful login -- clear any previous login error
+                    req.session.user = { name: user.name, role: user.role };
+                    // record session creation time for potential session invalidation checks
+                    req.session.createdAt = Date.now();
+                    if ( req.session.loginError ) delete req.session.loginError;
+                    // Redirect all users to unified dashboard; the UI served at /dashboard
+                    return res.redirect( '/dashboard' );
+                } else
+                {
+                    // invalid credentials: set session flash and redirect to login page
+                    req.session.loginError = 'Incorrect username or password. Please try again.';
+                    return res.redirect( '/' );
+                }
+            } );
         } else
         {
-            // invalid credentials: set session flash and redirect to login page
+            // user not found
             req.session.loginError = 'Incorrect username or password. Please try again.';
             return res.redirect( '/' );
         }
@@ -503,6 +606,46 @@ app.get( '/admin/users', requireAdmin, ( req, res ) =>
     {
         if ( err ) return res.status( 500 ).json( { error: err.message } );
         res.json( rows );
+    } );
+} );
+
+// Get current desktop access setting (admin only)
+app.get( '/admin/settings/desktop', requireAdmin, ( req, res ) =>
+{
+    db.get( 'SELECT value FROM settings WHERE name = ?', [ 'desktop_enabled' ], ( err, row ) =>
+    {
+        if ( err ) return res.status( 500 ).json( { error: err.message } );
+        const enabled = row && row.value ? ( row.value === '1' ) : true;
+        res.json( { enabled } );
+    } );
+} );
+
+// Update desktop access setting (owner only)
+app.post( '/admin/settings/desktop', requireAdmin, ( req, res ) =>
+{
+    // Only the owner may change this setting
+    if ( !req.session.user || req.session.user.role !== 'owner' )
+    {
+        return res.status( 403 ).json( { success: false, message: 'Only the Owner may change app settings.' } );
+    }
+
+    const enabled = req.body && req.body.enabled === '1' ? '1' : '0';
+
+    db.run( 'INSERT OR REPLACE INTO settings (name, value) VALUES (?, ?)', [ 'desktop_enabled', enabled ], function ( err )
+    {
+        if ( err ) return res.status( 500 ).json( { success: false, message: err.message } );
+
+        if ( enabled === '0' )
+        {
+            // record when desktop access was disabled for reference
+            const ts = new Date().toISOString();
+            db.run( 'INSERT OR REPLACE INTO settings (name, value) VALUES (?, ?)', [ 'desktop_disabled_at', ts ] );
+        } else
+        {
+            db.run( 'INSERT OR REPLACE INTO settings (name, value) VALUES (?, ?)', [ 'desktop_disabled_at', '' ] );
+        }
+
+        return res.json( { success: true, enabled: enabled === '1' } );
     } );
 } );
 

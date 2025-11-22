@@ -319,10 +319,10 @@
                     tr.innerHTML = `
                     <td>${ row.date }</td>
                     <td>${ row.in_time || '' }</td>
-                    <td>${ row.in_latitude ? `${ row.in_latitude.toFixed( 4 ) }, ${ row.in_longitude.toFixed( 4 ) }` : '' }</td>
+                    <td>${ row.in_latitude ? `<a href="https://www.google.com/maps/search/?api=1&query=${ row.in_latitude },${ row.in_longitude }" target="_blank" rel="noopener noreferrer">${ row.in_latitude.toFixed( 4 ) }, ${ row.in_longitude.toFixed( 4 ) }</a>` : '' }</td>
                     <td>${ row.in_selfie_path ? `<img src="${ row.in_selfie_path }" width="100">` : '' }</td>
                     <td>${ row.out_time || '' }</td>
-                    <td>${ row.out_latitude ? `${ row.out_latitude.toFixed( 4 ) }, ${ row.out_longitude.toFixed( 4 ) }` : '' }</td>
+                    <td>${ row.out_latitude ? `<a href="https://www.google.com/maps/search/?api=1&query=${ row.out_latitude },${ row.out_longitude }" target="_blank" rel="noopener noreferrer">${ row.out_latitude.toFixed( 4 ) }, ${ row.out_longitude.toFixed( 4 ) }</a>` : '' }</td>
                     <td>${ row.out_selfie_path ? `<img src="${ row.out_selfie_path }" width="100">` : '' }</td>
                     <td>${ row.total_time || '' }</td>
                 `;
