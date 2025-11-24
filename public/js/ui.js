@@ -44,8 +44,68 @@
     modal.style.display = 'flex';
   }
 
+  // Promise-based confirm modal. Resolves true if OK clicked, false if cancelled.
+  function showAppConfirm ( message )
+  {
+    return new Promise( ( resolve ) =>
+    {
+      // Create or reuse an element
+      let confirmEl = document.getElementById( 'app-confirm' );
+      if ( !confirmEl )
+      {
+        confirmEl = document.createElement( 'div' );
+        confirmEl.id = 'app-confirm';
+        confirmEl.className = 'modal';
+        confirmEl.style.position = 'fixed';
+        confirmEl.style.left = '0';
+        confirmEl.style.top = '0';
+        confirmEl.style.width = '100%';
+        confirmEl.style.height = '100%';
+        confirmEl.style.zIndex = '10000';
+        confirmEl.style.display = 'none';
+        confirmEl.style.alignItems = 'center';
+        confirmEl.style.justifyContent = 'center';
+        confirmEl.innerHTML = `
+          <div class="modal-content card">
+            <p id="app-confirm-message" style="margin-top:0"></p>
+            <div style="margin-top:12px;display:flex;gap:8px;justify-content:flex-end">
+              <button id="app-confirm-cancel" class="btn">Cancel</button>
+              <button id="app-confirm-ok" class="btn btn-primary">OK</button>
+            </div>
+          </div>
+        `;
+        document.body.appendChild( confirmEl );
+      }
+
+      const msg = document.getElementById( 'app-confirm-message' );
+      const ok = document.getElementById( 'app-confirm-ok' );
+      const cancel = document.getElementById( 'app-confirm-cancel' );
+
+      function cleanup ( result )
+      {
+        confirmEl.style.display = 'none';
+        ok.removeEventListener( 'click', onOk );
+        cancel.removeEventListener( 'click', onCancel );
+        confirmEl.removeEventListener( 'click', onOverlay );
+        resolve( result );
+      }
+
+      function onOk ( ev ) { ev && ev.preventDefault(); cleanup( true ); }
+      function onCancel ( ev ) { ev && ev.preventDefault(); cleanup( false ); }
+      function onOverlay ( ev ) { if ( ev.target === confirmEl ) cleanup( false ); }
+
+      ok.addEventListener( 'click', onOk );
+      cancel.addEventListener( 'click', onCancel );
+      confirmEl.addEventListener( 'click', onOverlay );
+
+      msg.textContent = message || '';
+      confirmEl.style.display = 'flex';
+    } );
+  }
+
   // expose global helper
   window.showAppModal = showAppModal;
+  window.showAppConfirm = showAppConfirm;
 } )();
 
 // Device detection helper: set a cookie `device_type=mobile|desktop` for server-side enforcement

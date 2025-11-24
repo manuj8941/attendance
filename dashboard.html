@@ -158,7 +158,7 @@
                                 <th>End Date</th>
                                 <th>Reason</th>
                                 <th>Status</th>
-                                <th>Approved By</th>
+                                <th>Actioned By</th>
                             </tr>
                         </thead>
                         <tbody id="leaves-body"></tbody>
@@ -405,8 +405,38 @@
                         document.getElementById( 'selfie' ).value = dataUrl;
                         // stop camera after successful capture
                         stopStream();
-                        // submit the form normally
-                        form.submit();
+                        // Submit via AJAX so we can show a modal confirmation instead of full redirect
+                        try
+                        {
+                            const payload = {
+                                latitude: document.getElementById( 'latitude' ).value,
+                                longitude: document.getElementById( 'longitude' ).value,
+                                selfie: dataUrl
+                            };
+                            const resp = await fetch( form.action, {
+                                method: 'POST',
+                                headers: {
+                                    'Content-Type': 'application/json',
+                                    'X-Requested-With': 'XMLHttpRequest'
+                                },
+                                body: JSON.stringify( payload )
+                            } );
+                            const result = await resp.json();
+                            if ( resp.ok && result.success )
+                            {
+                                showModal( result.message || 'Action completed.', 'success' );
+                                // Refresh relevant parts of the UI
+                                await loadAttendanceHistory();
+                                await loadAttendanceMarker( currentUser );
+                            } else
+                            {
+                                showModal( result.message || 'Could not complete action.', 'error' );
+                            }
+                        } catch ( ex )
+                        {
+                            console.error( ex );
+                            showModal( 'An unexpected error occurred while submitting attendance.', 'error' );
+                        }
                     } catch ( err )
                     {
                         console.error( 'Error during action button flow', err );
@@ -469,30 +499,74 @@
                 tbody.innerHTML = '';
                 if ( leaves.length === 0 )
                 {
-                    tbody.innerHTML = '<tr><td colspan="5">No leave requests found.</td></tr>';
+                    tbody.innerHTML = '<tr><td colspan="6">No leave requests found.</td></tr>';
                     return;
                 }
                 leaves.forEach( leave =>
                 {
                     const tr = document.createElement( 'tr' );
-                    // Render truncated reason (25 chars) with clickable link to view full reason in modal
                     const reasonPreview = leave.reason_truncated || ( leave.reason || '' );
                     const fullReason = leave.reason_full || ( leave.reason || '' );
-                    // If server-sent preview already ends with '...', remove it before adding a single link
                     let previewForDisplay = reasonPreview;
                     if ( previewForDisplay && previewForDisplay.endsWith( '...' ) ) previewForDisplay = previewForDisplay.slice( 0, -3 );
                     const reasonHtml = fullReason && fullReason.length > 25
                         ? `${ escapeHtml( previewForDisplay ) } <a href="#" class="show-reason" data-full="${ escapeHtmlAttr( fullReason ) }">...</a>`
                         : escapeHtml( previewForDisplay );
 
+                    // Flags and actions
+                    const flags = [];
+                    if ( leave.is_backdated ) flags.push( '<span title="Backdated request" style="font-size:12px;color:#666;margin-right:6px;">(backdated)</span>' );
+                    // Avoid duplicate 'withdrawn' text if the status already contains it
+                    if ( leave.taken_back && leave.status !== 'withdrawn' ) flags.push( '<span title="Taken back" style="font-size:12px;color:#999;margin-right:6px;">(withdrawn)</span>' );
+
+                    // Show take-back button for pending requests that are not yet taken back
+                    let actionHtml = '';
+                    if ( leave.status === 'pending' && !leave.taken_back )
+                    {
+                        actionHtml = `<button class="takeback-button" data-id="${ leave.leave_id }">Take Back</button>`;
+                    }
+
                     tr.innerHTML = `
                     <td>${ leave.start_date }</td>
                     <td>${ leave.end_date }</td>
                     <td>${ reasonHtml }</td>
-                    <td class="status-${ leave.status }">${ leave.status }</td>
+                    <td class="status-${ leave.status }">${ leave.status } ${ flags.join( ' ' ) }</td>
                     <td>${ leave.approved_by || '' }</td>
+                    <td>${ actionHtml }</td>
                 `;
                     tbody.appendChild( tr );
+                } );
+
+                // Wire up take-back buttons
+                document.querySelectorAll( '.takeback-button' ).forEach( btn =>
+                {
+                    btn.addEventListener( 'click', async ( e ) =>
+                    {
+                        const id = btn.getAttribute( 'data-id' );
+                        // Use modal confirmation for consistency
+                        let confirmed = false;
+                        if ( window.showAppConfirm ) confirmed = await window.showAppConfirm( 'Are you sure you want to take back this leave request?' );
+                        else confirmed = confirm( 'Are you sure you want to take back this leave request?' );
+                        if ( !confirmed ) return;
+                        try
+                        {
+                            const resp = await fetch( '/leaves/takeback', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify( { leave_id: id } ) } );
+                            const result = await resp.json();
+                            if ( result.success )
+                            {
+                                showModal( result.message, 'success' );
+                                loadLeaveHistory();
+                                loadLeaveBalance();
+                            } else
+                            {
+                                showModal( result.message || 'Could not take back leave.', 'error' );
+                            }
+                        } catch ( ex )
+                        {
+                            console.error( ex );
+                            showModal( 'An unexpected error occurred while taking back leave.', 'error' );
+                        }
+                    } );
                 } );
             }
 
@@ -507,6 +581,17 @@
             function escapeHtmlAttr ( str )
             {
                 return escapeHtml( str ).replace( /"/g, '&quot;' );
+            }
+
+            // Format ISO YYYY-MM-DD to friendly display like 24-November-2025
+            function formatIsoDateNice ( iso )
+            {
+                if ( !iso ) return '';
+                // Use Date with explicit midnight to avoid timezone shifts
+                const d = new Date( iso + 'T00:00:00' );
+                if ( isNaN( d.getTime() ) ) return iso;
+                const months = [ 'January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December' ];
+                return `${ d.getDate() }-${ months[ d.getMonth() ] }-${ d.getFullYear() }`;
             }
 
             // Delegate click for reason preview links
@@ -553,9 +638,61 @@
 
                         const formData = new FormData( leaveForm );
                         const data = Object.fromEntries( formData.entries() );
+                        const start = data.start_date;
+                        const end = data.end_date;
+
+                        // Client-side: Date order check
+                        if ( !start || !end ) { showModal( 'Please select both start and end dates.', 'error' ); return; }
+                        if ( new Date( start ) > new Date( end ) ) { showModal( 'Start date cannot be after end date.', 'error' ); return; }
 
                         try
                         {
+                            // Fetch attendance dates and check if any date in range has attendance
+                            const attRes = await fetch( '/attendance/dates' );
+                            const attDates = await attRes.json(); // array of YYYY-MM-DD strings
+
+                            // generate set of dates in range
+                            function datesInRange ( s, e )
+                            {
+                                const arr = [];
+                                let cur = new Date( s );
+                                const endd = new Date( e );
+                                while ( cur <= endd )
+                                {
+                                    arr.push( cur.toISOString().slice( 0, 10 ) );
+                                    cur.setDate( cur.getDate() + 1 );
+                                }
+                                return arr;
+                            }
+
+                            const requested = datesInRange( start, end );
+                            const presentOverlap = requested.filter( d => attDates.indexOf( d ) !== -1 );
+                            if ( presentOverlap.length > 0 )
+                            {
+                                const pretty = presentOverlap.map( d => formatIsoDateNice( d ) ).join( ', ' );
+                                showModal( `You have attendance records on these date(s): ${ pretty }. You cannot apply leave for days you were present.`, 'error' );
+                                return;
+                            }
+
+                            // Fetch raw leaves to check overlap
+                            const rawRes = await fetch( '/leaves/raw' );
+                            const rawLeaves = await rawRes.json();
+                            const overlap = rawLeaves.some( rl =>
+                            {
+                                if ( rl.status === 'withdrawn' ) return false; // ignore withdrawn
+                                const aStart = new Date( rl.start_date );
+                                const aEnd = new Date( rl.end_date );
+                                const reqStart = new Date( start );
+                                const reqEnd = new Date( end );
+                                return !( aEnd < reqStart || aStart > reqEnd );
+                            } );
+                            if ( overlap )
+                            {
+                                showModal( 'Requested dates overlap with an existing leave request.', 'error' );
+                                return;
+                            }
+
+                            // All client-side checks passed — submit to server
                             const response = await fetch( '/leaves/apply', {
                                 method: 'POST',
                                 headers: {

@@ -1,0 +1,44 @@
+Date Order (Required): Ensure start_date <= end_date (reject if start is after end). Do this on both client and server.
+No Leave On Present Days (Required): If the user has any attendance record (marked-in) for a date in the requested range, reject that date. Server must enforce.
+Leave Overlap (Required): Prevent new leave requests that overlap any existing leave (pending/approved/rejected as per policy). Server-side check + client-side UX warning.
+Sufficient Balance (Required): Confirm leave balance covers the requested duration. You already check this, keep it server-side authoritative.
+Backdated Requests (Policy): Decide whether backdated leaves are allowed. Common policy: disallow applying for dates in the past (or allow only with manager/owner approval). Enforce server-side.
+Future Limit (Policy): Limit how far ahead a user may request leave (e.g., max 12 months). Server-side.
+Minimum / Maximum Duration (Policy): Enforce min (e.g., half-day) and max continuous days (e.g., 30 days). Server-side + UX.
+Advance Notice (Policy): Require N days' notice for some leave types (e.g., annual leave). Server-side and client-side warnings.
+Weekend / Holiday Rules (Policy): Decide whether weekends or public holidays count toward leave. Validate against a holiday calendar where appropriate.
+Partial-day & Time-window Leaves: If you support half-day or hourly leaves, validate time ranges and ensure they don’t overlap attendance.
+Conflicting Team Quota (Optional): Prevent too many people in the same team being on leave at the same time (team-level rule). Server-side check referencing team membership.
+Document Requirement (Policy): For certain statuses (sick leave > X days), require attachment; validate file size/type server-side.
+Manager Approval Constraints: Managers cannot approve their own direct reports’ leaves in some orgs; enforce role-based approval rules on server.
+Prevent Double Actions (Race Conditions): Use a transaction or row-locking when checking balance/attendance/overlap + inserting leave to avoid TOCTOU race conditions.
+Date Format & Sanitation (Security): Validate/normalize incoming dates (ISO YYYY-MM-DD) and reject malformed inputs. Server-side.
+Timezone Consistency: Store dates in a consistent timezone or as local dates with explicit timezone handling to avoid off-by-one errors.
+Rate Limiting / Abuse Prevention: Prevent rapid repeated leave submissions (e.g., debounce client-side, throttle server-side).
+Audit Logging: Log who applied, when, IP, and any manager actions (approve/reject) for auditability.
+Notifications & Feedback: Send notifications (email/in-app) on apply/approve/reject; include reason and ability to attach manager notes. Triggered server-side after successful DB transaction.
+Prevent Mark-in During Approved Leave: If leave for today is approved, block marking-in for that day (server-side check at /mark-in).
+Consistency on Cancel/Edit: When editing or canceling leaves, re-run the same validations (balance recalculation, overlap, approval constraints). Server-side.
+Test Coverage: Add unit tests for boundary cases (same-day start/end, overlapping edges, timezone boundaries, concurrent requests).
+Priority (what to implement first)
+
+Date order and format validation (client + server)
+No-leave-if-present for any date in the range (server)
+Overlap detection with existing leaves (server)
+Sufficient balance and transactional insert (server)
+UX warnings for weekends/holidays and backdated requests (client)
+Implementation notes / pitfalls
+
+Always enforce rules server-side — client checks are only UX improvements.
+For overlap checks, compare inclusive date ranges and consider single-day boundaries carefully.
+Use DB transactions when verifying balance + inserting to avoid race conditions. SQLite supports BEGIN/COMMIT; use row-level checks or an application-level mutex if needed.
+When rejecting because of attendance, define whether any in/out marks block the full day or only if marked-in before applying.
+For holiday/calendar checks, keep a holidays table or external API to consult.
+Keep error messages consistent and user-friendly (return machine-friendly error codes for the frontend to show contextual messages).
+If you want, I can:
+
+Implement the prioritized checks now (server routes and client-side UX), or
+Start with the minimal required server-side protections (date order, no-leave-if-present, overlap, balance + transaction), then add the policy checks after you confirm rules for backdating, weekends, advance notice, etc.
+Which of the prioritized checks should I implement first?
+
+GPT-5 mini • 0x

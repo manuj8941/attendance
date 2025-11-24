@@ -115,6 +115,11 @@ db.serialize( () =>
         approved_by TEXT
     )`);
 
+    // Add columns for backdated flag and take-back tracking if they don't exist (for existing DBs)
+    db.run( "ALTER TABLE leaves ADD COLUMN is_backdated INTEGER DEFAULT 0", () => { } );
+    db.run( "ALTER TABLE leaves ADD COLUMN taken_back INTEGER DEFAULT 0", () => { } );
+    db.run( "ALTER TABLE leaves ADD COLUMN taken_back_at TEXT DEFAULT ''", () => { } );
+
     // Settings table for simple app-wide flags (e.g. desktop access toggle)
     db.run( "CREATE TABLE IF NOT EXISTS settings (name TEXT PRIMARY KEY, value TEXT)", ( err ) =>
     {
@@ -477,8 +482,18 @@ app.post( '/mark-in', requireLogin, ( req, res ) =>
     db.run( `INSERT INTO attendance_${ user.name } (date, in_time, in_latitude, in_longitude, in_selfie_path) VALUES (?, ?, ?, ?, ?)`,
         [ date, time, latitude, longitude, selfiePath ], function ( err )
     {
-        if ( err ) return console.error( err.message );
+        if ( err )
+        {
+            console.error( err.message );
+            const acceptsJson = req.headers && req.headers.accept && req.headers.accept.indexOf( 'application/json' ) !== -1;
+            const isXhr = req.xhr || ( req.headers && req.headers[ 'x-requested-with' ] === 'XMLHttpRequest' );
+            if ( acceptsJson || isXhr ) return res.status( 500 ).json( { success: false, message: 'Could not mark in. Please try again.' } );
+            return res.redirect( '/dashboard' );
+        }
         console.log( `${ user.name } marked in on ${ now.format( 'DD-MMMM-YYYY' ) } at ${ now.format( 'h:mm A' ) }` );
+        const acceptsJson = req.headers && req.headers.accept && req.headers.accept.indexOf( 'application/json' ) !== -1;
+        const isXhr = req.xhr || ( req.headers && req.headers[ 'x-requested-with' ] === 'XMLHttpRequest' );
+        if ( acceptsJson || isXhr ) return res.json( { success: true, message: 'Marked in successfully.' } );
         res.redirect( '/dashboard' );
     } );
 } );
@@ -496,8 +511,18 @@ app.post( '/mark-out', requireLogin, ( req, res ) =>
     db.run( `UPDATE attendance_${ user.name } SET out_time = ?, out_latitude = ?, out_longitude = ?, out_selfie_path = ? WHERE date = ?`,
         [ time, latitude, longitude, selfiePath, date ], function ( err )
     {
-        if ( err ) return console.error( err.message );
+        if ( err )
+        {
+            console.error( err.message );
+            const acceptsJson = req.headers && req.headers.accept && req.headers.accept.indexOf( 'application/json' ) !== -1;
+            const isXhr = req.xhr || ( req.headers && req.headers[ 'x-requested-with' ] === 'XMLHttpRequest' );
+            if ( acceptsJson || isXhr ) return res.status( 500 ).json( { success: false, message: 'Could not mark out. Please try again.' } );
+            return res.redirect( '/dashboard' );
+        }
         console.log( `${ user.name } marked out on ${ now.format( 'DD-MMMM-YYYY' ) } at ${ now.format( 'h:mm A' ) }` );
+        const acceptsJson = req.headers && req.headers.accept && req.headers.accept.indexOf( 'application/json' ) !== -1;
+        const isXhr = req.xhr || ( req.headers && req.headers[ 'x-requested-with' ] === 'XMLHttpRequest' );
+        if ( acceptsJson || isXhr ) return res.json( { success: true, message: 'Marked out successfully.' } );
         res.redirect( '/dashboard' );
     } );
 } );
@@ -531,6 +556,29 @@ app.get( '/leaves/balance', requireLogin, async ( req, res ) =>
     }
 } );
 
+// Provide raw attendance dates for client-side checks (YYYY-MM-DD array)
+app.get( '/attendance/dates', requireLogin, ( req, res ) =>
+{
+    const user = req.session.user;
+    db.all( `SELECT date FROM attendance_${ user.name } WHERE in_time IS NOT NULL ORDER BY date DESC`, [], ( err, rows ) =>
+    {
+        if ( err ) return res.status( 500 ).json( { error: err.message } );
+        const dates = ( rows || [] ).map( r => r.date );
+        res.json( dates );
+    } );
+} );
+
+// Provide raw leaves for client-side overlap checks (includes raw ISO dates)
+app.get( '/leaves/raw', requireLogin, ( req, res ) =>
+{
+    const username = req.session.user.name;
+    db.all( 'SELECT leave_id, start_date, end_date, status FROM leaves WHERE username = ? ORDER BY start_date DESC', [ username ], ( err, rows ) =>
+    {
+        if ( err ) return res.status( 500 ).json( { error: err.message } );
+        res.json( rows || [] );
+    } );
+} );
+
 app.post( '/leaves/apply', requireLogin, async ( req, res ) =>
 {
     const { start_date, end_date, reason } = req.body;
@@ -538,13 +586,14 @@ app.post( '/leaves/apply', requireLogin, async ( req, res ) =>
 
     try
     {
-        const balance = await calculateAndUpdateLeaveBalance( username );
-        const leaveDuration = moment( end_date ).diff( moment( start_date ), 'days' ) + 1;
+        // Basic date validation and ordering
+        if ( !start_date || !end_date ) return res.status( 400 ).json( { success: false, message: 'Start date and end date are required.' } );
+        const start = moment( start_date, 'YYYY-MM-DD', true );
+        const end = moment( end_date, 'YYYY-MM-DD', true );
+        if ( !start.isValid() || !end.isValid() ) return res.status( 400 ).json( { success: false, message: 'Dates must be in YYYY-MM-DD format.' } );
+        if ( start.isAfter( end ) ) return res.status( 400 ).json( { success: false, message: 'Start date cannot be after end date.' } );
 
-        if ( balance < leaveDuration )
-        {
-            return res.status( 400 ).json( { success: false, message: 'You do not have enough leave balance for the requested dates.' } );
-        }
+        const leaveDuration = end.diff( start, 'days' ) + 1;
 
         // Validate reason: required and max 250 characters (including spaces)
         const reasonText = ( reason || '' ).toString().trim();
@@ -556,21 +605,96 @@ app.post( '/leaves/apply', requireLogin, async ( req, res ) =>
         {
             return res.status( 400 ).json( { success: false, message: 'Reason cannot exceed 250 characters.' } );
         }
-
-        // Store the validated reason (safety: ensure max 250 stored)
         const storedReason = reasonText.substring( 0, 250 );
 
-        db.run( 'INSERT INTO leaves (username, start_date, end_date, reason) VALUES (?, ?, ?, ?)',
-            [ username, start_date, end_date, storedReason ], function ( err )
+        // Check attendance: user cannot apply for leave on days they have marked in
+        db.all( `SELECT date FROM attendance_${ username } WHERE date BETWEEN ? AND ? AND in_time IS NOT NULL`, [ start_date, end_date ], async ( attErr, attRows ) =>
         {
-            if ( err ) return res.status( 500 ).json( { success: false, message: 'We could not submit your leave request. Please try again later.' } );
-            console.log( `${ username } applied for leave from ${ moment( start_date, 'YYYY-MM-DD' ).format( 'DD-MMMM-YYYY' ) } to ${ moment( end_date, 'YYYY-MM-DD' ).format( 'DD-MMMM-YYYY' ) }` );
-            res.status( 200 ).json( { success: true, message: 'Leave applied successfully.' } );
+            if ( attErr )
+            {
+                console.error( 'Error checking attendance for leave apply', attErr );
+                return res.status( 500 ).json( { success: false, message: 'Could not verify attendance. Please try again.' } );
+            }
+            if ( attRows && attRows.length > 0 )
+            {
+                // Format dates for a friendlier message (e.g. 24-November-2025)
+                const dates = attRows.map( r => moment( r.date, 'YYYY-MM-DD' ).format( 'DD-MMMM-YYYY' ) ).join( ', ' );
+                return res.status( 400 ).json( { success: false, message: `You have attendance records on the following date(s): ${ dates }. You cannot apply leave for days you were present.` } );
+            }
+
+            // Check overlap with existing leaves (exclude withdrawn/taken-back requests)
+            db.get( `SELECT 1 FROM leaves WHERE username = ? AND taken_back = 0 AND NOT (end_date < ? OR start_date > ?) LIMIT 1`, [ username, start_date, end_date ], async ( ovErr, overlap ) =>
+            {
+                if ( ovErr )
+                {
+                    console.error( 'Error checking leave overlap', ovErr );
+                    return res.status( 500 ).json( { success: false, message: 'Could not verify existing leaves. Please try again.' } );
+                }
+                if ( overlap )
+                {
+                    return res.status( 400 ).json( { success: false, message: 'Requested dates overlap with an existing leave request.' } );
+                }
+
+                // Check balance
+                try
+                {
+                    const balance = await calculateAndUpdateLeaveBalance( username );
+                    if ( balance < leaveDuration )
+                    {
+                        return res.status( 400 ).json( { success: false, message: 'You do not have enough leave balance for the requested dates.' } );
+                    }
+                } catch ( balErr )
+                {
+                    console.error( 'Error checking balance', balErr );
+                    return res.status( 500 ).json( { success: false, message: 'Could not verify leave balance. Please try again.' } );
+                }
+
+                // Determine backdated flag
+                const today = moment().format( 'YYYY-MM-DD' );
+                const isBackdated = start_date < today ? 1 : 0;
+
+                // Insert leave with metadata
+                db.run( 'INSERT INTO leaves (username, start_date, end_date, reason, is_backdated) VALUES (?, ?, ?, ?, ?)',
+                    [ username, start_date, end_date, storedReason, isBackdated ], function ( insErr )
+                {
+                    if ( insErr )
+                    {
+                        console.error( 'Error inserting leave', insErr );
+                        return res.status( 500 ).json( { success: false, message: 'We could not submit your leave request. Please try again later.' } );
+                    }
+                    console.log( `${ username } applied for leave from ${ moment( start_date, 'YYYY-MM-DD' ).format( 'DD-MMMM-YYYY' ) } to ${ moment( end_date, 'YYYY-MM-DD' ).format( 'DD-MMMM-YYYY' ) }` );
+                    return res.status( 200 ).json( { success: true, message: 'Leave applied successfully.' } );
+                } );
+            } );
         } );
     } catch ( error )
     {
         res.status( 500 ).json( { success: false, message: error.message } );
     }
+} );
+
+// Allow users to take back (withdraw) a pending leave request
+app.post( '/leaves/takeback', requireLogin, ( req, res ) =>
+{
+    const { leave_id } = req.body;
+    const username = req.session.user.name;
+    if ( !leave_id ) return res.status( 400 ).json( { success: false, message: 'leave_id is required.' } );
+
+    db.get( 'SELECT * FROM leaves WHERE leave_id = ? AND username = ?', [ leave_id, username ], ( err, row ) =>
+    {
+        if ( err ) return res.status( 500 ).json( { success: false, message: err.message } );
+        if ( !row ) return res.status( 404 ).json( { success: false, message: 'Leave request not found.' } );
+        if ( row.taken_back ) return res.status( 400 ).json( { success: false, message: 'This leave request has already been taken back.' } );
+        if ( row.status !== 'pending' ) return res.status( 400 ).json( { success: false, message: 'Only pending leave requests can be taken back.' } );
+
+        const ts = new Date().toISOString();
+        db.run( 'UPDATE leaves SET taken_back = 1, taken_back_at = ?, status = ? WHERE leave_id = ?', [ ts, 'withdrawn', leave_id ], function ( upErr )
+        {
+            if ( upErr ) return res.status( 500 ).json( { success: false, message: 'Could not take back leave request.' } );
+            console.log( `${ username } withdrew leave request ${ leave_id } at ${ moment( ts ).format( 'DD-MMMM-YYYY, h:mm:ss A' ) }` );
+            return res.json( { success: true, message: 'Leave request taken back.' } );
+        } );
+    } );
 } );
 
 app.get( '/leaves', requireLogin, ( req, res ) =>
@@ -587,7 +711,10 @@ app.get( '/leaves', requireLogin, ( req, res ) =>
                 start_date: formatDateForDisplay( row.start_date ),
                 end_date: formatDateForDisplay( row.end_date ),
                 reason_truncated: truncated,
-                reason_full: fullReason
+                reason_full: fullReason,
+                is_backdated: row.is_backdated ? !!row.is_backdated : false,
+                taken_back: row.taken_back ? !!row.taken_back : false,
+                taken_back_at: row.taken_back_at || ''
             };
         } );
         res.json( formattedRows );
@@ -758,7 +885,10 @@ app.get( '/admin/leaves', requireAdmin, ( req, res ) =>
                 start_date: formatDateForDisplay( row.start_date ),
                 end_date: formatDateForDisplay( row.end_date ),
                 reason_truncated: truncated,
-                reason_full: fullReason
+                reason_full: fullReason,
+                is_backdated: row.is_backdated ? !!row.is_backdated : false,
+                taken_back: row.taken_back ? !!row.taken_back : false,
+                taken_back_at: row.taken_back_at || ''
             };
         } );
 
@@ -780,7 +910,10 @@ app.get( '/admin/leaves/history', requireAdmin, ( req, res ) =>
                 start_date: formatDateForDisplay( row.start_date ),
                 end_date: formatDateForDisplay( row.end_date ),
                 reason_truncated: truncated,
-                reason_full: fullReason
+                reason_full: fullReason,
+                is_backdated: row.is_backdated ? !!row.is_backdated : false,
+                taken_back: row.taken_back ? !!row.taken_back : false,
+                taken_back_at: row.taken_back_at || ''
             };
         } );
         res.json( formattedRows );
@@ -795,6 +928,12 @@ app.post( '/admin/leaves/action', requireAdmin, ( req, res ) =>
     db.get( 'SELECT l.*, u.role FROM leaves l JOIN users u ON l.username = u.name WHERE l.leave_id = ?', [ leave_id ], ( err, leave ) =>
     {
         if ( err || !leave ) return res.status( 404 ).send( 'Leave request not found.' );
+
+        // Prevent actions on withdrawn/taken-back requests
+        if ( leave.taken_back )
+        {
+            return res.status( 400 ).send( 'This leave request has been withdrawn by the requester.' );
+        }
 
         // Check permissions
         if ( admin.role === 'manager' && leave.role !== 'employee' )

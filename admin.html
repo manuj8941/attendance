@@ -54,6 +54,17 @@
                 cursor: pointer;
             }
 
+            /* Ensure action buttons in tables don't expand to full width (mobile.css sets button width:100%) */
+            .approve-btn,
+            .reject-btn {
+                display: inline-block;
+                width: auto;
+                padding: 8px 14px;
+                font-size: 0.95rem;
+                margin-right: 6px;
+                box-sizing: border-box;
+            }
+
             .approve-btn {
                 background-color: #28a745;
             }
@@ -100,6 +111,7 @@
                                 <th>End Date</th>
                                 <th>Reason</th>
                                 <th>Action</th>
+                                <th>Flags</th>
                             </tr>
                         </thead>
                         <tbody id="leave-requests-body"></tbody>
@@ -119,7 +131,7 @@
                                 <th>End Date</th>
                                 <th>Reason</th>
                                 <th>Status</th>
-                                <th>Approved By</th>
+                                <th>Actioned By</th>
                             </tr>
                         </thead>
                         <tbody id="all-leaves-body"></tbody>
@@ -345,15 +357,30 @@
                         ? `${ escapeHtml( previewForDisplay ) } <a href="#" class="show-reason" data-full="${ escapeHtmlAttr( fullReason ) }">...</a>`
                         : escapeHtml( previewForDisplay );
 
+                    const flags = [];
+                    if ( leave.is_backdated ) flags.push( '<span title="Backdated request" style="font-size:12px;color:#666;margin-right:6px;">(backdated)</span>' );
+                    if ( leave.taken_back && leave.status !== 'withdrawn' ) flags.push( '<span title="Taken back" style="font-size:12px;color:#999;margin-right:6px;">(withdrawn)</span>' );
+
+                    // Determine whether current admin can act on this leave
+                    let actionHtml = '';
+                    const isPending = ( leave.status === 'pending' );
+                    const isWithdrawn = !!leave.taken_back;
+                    // currentUser is available globally; manager can act only on employee leaves
+                    const adminRole = ( currentUser && currentUser.role ) ? currentUser.role : '';
+                    const managerRestricted = ( adminRole === 'manager' && leave.role !== 'employee' );
+                    const canAct = isPending && !isWithdrawn && !managerRestricted;
+                    if ( canAct )
+                    {
+                        actionHtml = `<button class="approve-btn" onclick="handleLeaveAction(${ leave.leave_id }, 'approved')">Approve</button> <button class="reject-btn" onclick="handleLeaveAction(${ leave.leave_id }, 'rejected')">Reject</button>`;
+                    }
+
                     tr.innerHTML = `
                     <td>${ leave.username }</td>
                     <td>${ leave.start_date }</td>
                     <td>${ leave.end_date }</td>
                     <td>${ reasonHtml }</td>
-                    <td>
-                        <button class="approve-btn" onclick="handleLeaveAction(${ leave.leave_id }, 'approved')">Approve</button>
-                        <button class="reject-btn" onclick="handleLeaveAction(${ leave.leave_id }, 'rejected')">Reject</button>
-                    </td>
+                    <td>${ actionHtml }</td>
+                    <td>${ flags.join( ' ' ) }</td>
                 `;
                     tbody.appendChild( tr );
                 } );
@@ -379,12 +406,15 @@
                         ? `${ escapeHtml( reasonPreview ) } <a href="#" class="show-reason" data-full="${ escapeHtmlAttr( fullReason ) }">...</a>`
                         : escapeHtml( reasonPreview );
 
+                    const flags = [];
+                    if ( leave.is_backdated ) flags.push( '<span title="Backdated request" style="font-size:12px;color:#666;margin-right:6px;">(backdated)</span>' );
+                    if ( leave.taken_back && leave.status !== 'withdrawn' ) flags.push( '<span title="Taken back" style="font-size:12px;color:#999;margin-right:6px;">(withdrawn)</span>' );
                     tr.innerHTML = `
                     <td>${ leave.username }</td>
                     <td>${ leave.start_date }</td>
                     <td>${ leave.end_date }</td>
                     <td>${ reasonHtml }</td>
-                    <td class="status-${ leave.status }">${ leave.status }</td>
+                    <td class="status-${ leave.status }">${ leave.status } ${ flags.join( ' ' ) }</td>
                     <td>${ leave.approved_by || '' }</td>
                 `;
                     tbody.appendChild( tr );
@@ -417,11 +447,31 @@
             } );
             async function handleLeaveAction ( leave_id, status )
             {
-                await fetch( '/admin/leaves/action', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify( { leave_id, status } )
-                } );
+                try
+                {
+                    const res = await fetch( '/admin/leaves/action', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify( { leave_id, status } )
+                    } );
+                    if ( res.ok )
+                    {
+                        const msg = status === 'approved' ? 'Leave approved successfully.' : 'Leave rejected successfully.';
+                        if ( window.showAppModal ) window.showAppModal( msg, 'success' );
+                    } else
+                    {
+                        // Try to extract error message
+                        let text = 'Could not process the action.';
+                        try { text = await res.text(); } catch ( e ) { /* ignore */ }
+                        if ( window.showAppModal ) window.showAppModal( text || 'Could not process the action.', 'error' );
+                    }
+                } catch ( e )
+                {
+                    console.error( e );
+                    if ( window.showAppModal ) window.showAppModal( 'An unexpected error occurred while processing the leave action.', 'error' );
+                }
+
+                // Refresh lists in either case to reflect updated server state
                 loadLeaveRequests(); // Refresh the list
                 loadAllLeaves(); // Refresh all leaves list
             }
