@@ -129,6 +129,8 @@ db.serialize( () =>
             // defaults: desktop access ON by default
             db.run( "INSERT OR IGNORE INTO settings (name, value) VALUES (?, ?)", [ 'desktop_enabled', '1' ] );
             db.run( "INSERT OR IGNORE INTO settings (name, value) VALUES (?, ?)", [ 'desktop_disabled_at', '' ] );
+            // test_date_override is empty by default (no global override)
+            db.run( "INSERT OR IGNORE INTO settings (name, value) VALUES (?, ?)", [ 'test_date_override', '' ] );
         }
     } );
 
@@ -171,6 +173,12 @@ db.serialize( () =>
         }
         console.log( 'Initial leave accrual on startup completed.' );
     } );
+    // Load global test-date override into app local cache for fast access
+    db.get( "SELECT value FROM settings WHERE name = ?", [ 'test_date_override' ], ( err, row ) =>
+    {
+        app.locals.testDateOverride = ( row && row.value ) ? row.value : '';
+        console.log( 'Loaded test_date_override:', app.locals.testDateOverride || '(none)' );
+    } );
 } );
 
 // --- HELPER FUNCTIONS ---
@@ -209,6 +217,50 @@ function formatDateForDisplay ( date )
     if ( !date ) return null;
     // Compact date for tables: e.g. 6-Dec-25
     return moment( date, 'YYYY-MM-DD' ).format( 'D-MMM-YY' );
+}
+
+// Helper: return an effective 'today' (YYYY-MM-DD) for the request.
+// Priority: query param `test_date`, header `x-test-date`, cookie `test_date`, session.testDate, system date.
+function getEffectiveDate ( req )
+{
+    try
+    {
+        // 0) global app-wide override (owner-set permanent test date)
+        if ( req && req.app && req.app.locals && req.app.locals.testDateOverride )
+        {
+            const m = moment( req.app.locals.testDateOverride, 'YYYY-MM-DD', true );
+            if ( m.isValid() ) return m.format( 'YYYY-MM-DD' );
+        }
+        // 1) query param
+        if ( req && req.query && req.query.test_date )
+        {
+            const m = moment( req.query.test_date, 'YYYY-MM-DD', true );
+            if ( m.isValid() ) return m.format( 'YYYY-MM-DD' );
+        }
+
+        // 2) header
+        if ( req && req.headers && req.headers[ 'x-test-date' ] )
+        {
+            const m = moment( req.headers[ 'x-test-date' ], 'YYYY-MM-DD', true );
+            if ( m.isValid() ) return m.format( 'YYYY-MM-DD' );
+        }
+
+        // 3) cookie
+        const cookieVal = getCookieValue( req, 'test_date' );
+        if ( cookieVal )
+        {
+            const m = moment( cookieVal, 'YYYY-MM-DD', true );
+            if ( m.isValid() ) return m.format( 'YYYY-MM-DD' );
+        }
+
+        // 4) session override (useful for scripted tests)
+        if ( req && req.session && req.session.testDate )
+        {
+            const m = moment( req.session.testDate, 'YYYY-MM-DD', true );
+            if ( m.isValid() ) return m.format( 'YYYY-MM-DD' );
+        }
+    } catch ( e ) { /* ignore and fall back to real date */ }
+    return moment().format( 'YYYY-MM-DD' );
 }
 
 // --- LEAVE ACCRUAL LOGIC (ON STARTUP) ---
@@ -540,7 +592,7 @@ app.get( '/attendance/status', requireLogin, ( req, res ) =>
     {
         return res.json( { status: 'not_applicable', message: 'Attendance is not applicable for owner/admin accounts.' } );
     }
-    const today = moment().format( 'YYYY-MM-DD' );
+    const today = getEffectiveDate( req );
     return checkIfDateIsOff( today, ( err, off ) =>
     {
         if ( err ) return res.status( 500 ).json( { error: err.message } );
@@ -565,7 +617,7 @@ app.post( '/mark-in', requireLogin, ( req, res ) =>
     const { latitude, longitude, selfie } = req.body;
     const user = req.session.user;
     const now = moment();
-    const date = now.format( 'YYYY-MM-DD' );
+    const date = getEffectiveDate( req );
     const time = now.format( 'HH:mm:ss' );
 
     function doMarkIn ()
@@ -624,7 +676,7 @@ app.post( '/mark-out', requireLogin, ( req, res ) =>
     const { latitude, longitude, selfie } = req.body;
     const user = req.session.user;
     const now = moment();
-    const date = now.format( 'YYYY-MM-DD' );
+    const date = getEffectiveDate( req );
     const time = now.format( 'HH:mm:ss' );
     function doMarkOut ()
     {
@@ -799,8 +851,8 @@ app.post( '/leaves/apply', requireLogin, async ( req, res ) =>
                     return res.status( 500 ).json( { success: false, message: 'Could not verify leave balance. Please try again.' } );
                 }
 
-                // Determine backdated flag
-                const today = moment().format( 'YYYY-MM-DD' );
+                // Determine backdated flag (respect test-date override when testing)
+                const today = getEffectiveDate( req );
                 const isBackdated = start_date < today ? 1 : 0;
 
                 // Insert leave with metadata
@@ -909,6 +961,28 @@ app.get( '/admin/settings/app', requireOwner, ( req, res ) =>
                 } );
             } );
         } );
+    } );
+} );
+
+// Get current permanent test-date override (owner only)
+app.get( '/admin/settings/test-date', requireOwner, ( req, res ) =>
+{
+    const val = req.app.locals.testDateOverride || '';
+    return res.json( { test_date: val || null } );
+} );
+
+// Set/clear permanent test-date override (owner only)
+app.post( '/admin/settings/test-date', requireOwner, ( req, res ) =>
+{
+    const { test_date } = req.body || {};
+    if ( test_date && !moment( test_date, 'YYYY-MM-DD', true ).isValid() ) return res.status( 400 ).json( { success: false, message: 'test_date must be in YYYY-MM-DD format.' } );
+    const value = test_date ? test_date : '';
+    db.run( 'INSERT OR REPLACE INTO settings (name, value) VALUES (?, ?)', [ 'test_date_override', value ], function ( err )
+    {
+        if ( err ) return res.status( 500 ).json( { success: false, message: err.message } );
+        // update cache
+        req.app.locals.testDateOverride = value;
+        return res.json( { success: true, test_date: value || null } );
     } );
 } );
 
