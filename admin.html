@@ -96,8 +96,7 @@
                     id="back-link-container"></span> | <a href="/profile">Change Password</a> | <a
                     href="/logout">Logout</a></p>
 
-            <!-- Owner-only control: toggle desktop access for non-owners -->
-            <div id="desktop-access-control" style="margin-top:8px; margin-bottom:8px"></div>
+            <!-- Owner settings accessible from App Settings -->
 
             <!-- Section for Leave Request Management -->
             <div class="section">
@@ -207,6 +206,13 @@
                 currentUser = await userRes.json();
                 document.getElementById( 'admin-name' ).textContent = currentUser.name;
                 document.getElementById( 'admin-role' ).textContent = currentUser.role.replace( '_', ' ' );
+
+                // Owner gets quick App Settings link
+                if ( currentUser && currentUser.role === 'owner' )
+                {
+                    const container = document.getElementById( 'back-link-container' );
+                    if ( container ) container.innerHTML = ' | <a href="/appsettings">App Settings</a>';
+                }
 
                 // Profile link in header
                 const header = document.querySelector( 'p' );
@@ -559,67 +565,7 @@
                 } );
             }
         </script>
-        <script>
-            // Owner-only desktop access toggle UI
-            ( async function ()
-            {
-                try
-                {
-                    const meRes = await fetch( '/user/me' );
-                    if ( !meRes.ok ) return;
-                    const me = await meRes.json();
-                    if ( !me || me.role !== 'owner' ) return; // only show to owner
-
-                    const container = document.getElementById( 'desktop-access-control' );
-                    if ( !container ) return;
-
-                    // fetch current setting
-                    const setRes = await fetch( '/admin/settings/desktop' );
-                    const current = ( setRes.ok ) ? await setRes.json() : { enabled: true };
-
-                    container.innerHTML = `
-                        <label style="display:inline-flex;align-items:center;gap:8px">
-                            <input type="checkbox" id="desktop-enabled-checkbox"> <span>Allow Desktop Access for non-owners</span>
-                        </label>
-                        <span id="desktop-access-status" style="margin-left:12px;font-size:0.95em;color:#666"></span>
-                    `;
-
-                    const checkbox = document.getElementById( 'desktop-enabled-checkbox' );
-                    const status = document.getElementById( 'desktop-access-status' );
-                    checkbox.checked = !!current.enabled;
-                    status.textContent = checkbox.checked ? 'Enabled' : 'Disabled';
-
-                    checkbox.addEventListener( 'change', async () =>
-                    {
-                        const enabled = checkbox.checked ? '1' : '0';
-                        try
-                        {
-                            const res = await fetch( '/admin/settings/desktop', {
-                                method: 'POST',
-                                headers: { 'Content-Type': 'application/json' },
-                                body: JSON.stringify( { enabled } )
-                            } );
-                            const body = await res.json();
-                            if ( res.ok && body.success )
-                            {
-                                status.textContent = checkbox.checked ? 'Enabled' : 'Disabled';
-                                showAppModal( 'Desktop access setting updated.', 'success' );
-                            } else
-                            {
-                                showAppModal( body.message || 'Could not update setting.', 'error' );
-                                // revert checkbox to previous state
-                                checkbox.checked = !checkbox.checked;
-                            }
-                        } catch ( e )
-                        {
-                            console.error( e );
-                            showAppModal( 'Failed to update setting. Please try again.', 'error' );
-                            checkbox.checked = !checkbox.checked;
-                        }
-                    } );
-                } catch ( e ) { /* ignore */ }
-            } )();
-        </script>
+        <!-- Desktop access toggle removed from admin page. Use App Settings instead. -->
     </body>
 
 </html>

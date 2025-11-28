@@ -132,6 +132,25 @@ db.serialize( () =>
         }
     } );
 
+    // Ad-hoc off days table (owner declares specific YYYY-MM-DD days off)
+    db.run( `CREATE TABLE IF NOT EXISTS ad_hoc_offs (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        date TEXT UNIQUE,
+        reason TEXT,
+        created_by TEXT,
+        created_at TEXT
+    )` );
+
+    // Yearly holidays table (store month-day like '10-15' for recurring yearly celebrations)
+    db.run( `CREATE TABLE IF NOT EXISTS holidays (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        name TEXT,
+        month_day TEXT
+    )` );
+
+    // Weekly off scheduling (1 default -> All Sundays off). Stored in settings as 'weekly_off_mode'
+    db.run( "INSERT OR IGNORE INTO settings (name, value) VALUES (?, ?)", [ 'weekly_off_mode', '1' ] );
+
     // --- SERVER STARTUP LEAVE ACCRUAL ---
     db.all( 'SELECT name, join_date, leave_balance, leave_balance_last_updated FROM users WHERE role != ?', [ 'owner' ], async ( err, employees ) =>
     {
@@ -275,6 +294,62 @@ function requireAdmin ( req, res, next )
     {
         res.status( 403 ).send( 'You are not authorized to access that page.' );
     }
+}
+
+function requireOwner ( req, res, next )
+{
+    if ( req.session.user && req.session.user.role === 'owner' ) return next();
+    return res.status( 403 ).send( 'Only the Owner may access this page.' );
+}
+
+// Helper: check whether a given ISO date (YYYY-MM-DD) is an off day (ad-hoc, holiday, or weekly off)
+function checkIfDateIsOff ( date, callback )
+{
+    if ( !date ) return callback( null, { off: false } );
+    const m = moment( date, 'YYYY-MM-DD', true );
+    if ( !m.isValid() ) return callback( null, { off: false } );
+
+    const mmdd = m.format( 'MM-DD' );
+
+    // 1) Check ad-hoc offs
+    db.get( 'SELECT id, reason FROM ad_hoc_offs WHERE date = ?', [ date ], ( err, adhoc ) =>
+    {
+        if ( err ) return callback( err );
+        if ( adhoc ) return callback( null, { off: true, type: 'ad_hoc', reason: adhoc.reason, id: adhoc.id } );
+
+        // 2) Check holidays (month-day recurring)
+        db.get( 'SELECT id, name FROM holidays WHERE month_day = ?', [ mmdd ], ( err2, hol ) =>
+        {
+            if ( err2 ) return callback( err2 );
+            if ( hol ) return callback( null, { off: true, type: 'holiday', name: hol.name } );
+
+            // 3) Check weekly off mode
+            db.get( 'SELECT value FROM settings WHERE name = ?', [ 'weekly_off_mode' ], ( err3, row ) =>
+            {
+                if ( err3 ) return callback( err3 );
+                const mode = row && row.value ? row.value : '1';
+                const dow = m.day(); // 0=Sunday,6=Saturday
+
+                // Mode mapping
+                // 1 -> All Sundays off
+                // 2 -> All Sundays and Saturdays off
+                // 3 -> All Sundays and (2nd & 4th Saturdays)
+                // 4 -> All Sundays and alternate Saturdays (1st,3rd,5th)
+                if ( dow === 0 ) return callback( null, { off: true, type: 'weekly', mode } );
+
+                if ( dow === 6 )
+                {
+                    const dom = m.date();
+                    const weekOfMonth = Math.floor( ( dom - 1 ) / 7 ) + 1; // 1-based
+                    if ( mode === '2' ) return callback( null, { off: true, type: 'weekly', mode } );
+                    if ( mode === '3' && ( weekOfMonth === 2 || weekOfMonth === 4 ) ) return callback( null, { off: true, type: 'weekly', mode } );
+                    if ( mode === '4' && ( weekOfMonth % 2 === 1 ) ) return callback( null, { off: true, type: 'weekly', mode } );
+                }
+
+                return callback( null, { off: false } );
+            } );
+        } );
+    } );
 }
 
 // --- DEVICE ACCESS HELPERS & ENFORCEMENT ---
@@ -451,6 +526,12 @@ app.get( '/dashboard', requireLogin, ( req, res ) =>
     return res.sendFile( path.join( __dirname, 'dashboard.html' ) );
 } );
 
+// Owner-only App Settings UI
+app.get( '/appsettings', requireOwner, ( req, res ) =>
+{
+    return res.sendFile( path.join( __dirname, 'appsettings.html' ) );
+} );
+
 app.get( '/attendance/status', requireLogin, ( req, res ) =>
 {
     const user = req.session.user;
@@ -460,12 +541,22 @@ app.get( '/attendance/status', requireLogin, ( req, res ) =>
         return res.json( { status: 'not_applicable', message: 'Attendance is not applicable for owner/admin accounts.' } );
     }
     const today = moment().format( 'YYYY-MM-DD' );
-    db.get( `SELECT * FROM attendance_${ user.name } WHERE date = ?`, [ today ], ( err, row ) =>
+    return checkIfDateIsOff( today, ( err, off ) =>
     {
         if ( err ) return res.status( 500 ).json( { error: err.message } );
-        if ( !row ) return res.json( { status: 'not_marked_in' } );
-        if ( row.in_time && !row.out_time ) return res.json( { status: 'marked_in' } );
-        if ( row.in_time && row.out_time ) return res.json( { status: 'marked_out' } );
+        if ( off && off.off )
+        {
+            const msg = off.type === 'ad_hoc' ? `Today has been declared off: ${ off.reason || '' }` : ( off.type === 'holiday' ? `Today is a holiday: ${ off.name }` : 'Today is a weekly off day.' );
+            return res.json( { status: 'off', message: msg } );
+        }
+
+        db.get( `SELECT * FROM attendance_${ user.name } WHERE date = ?`, [ today ], ( err2, row ) =>
+        {
+            if ( err2 ) return res.status( 500 ).json( { error: err2.message } );
+            if ( !row ) return res.json( { status: 'not_marked_in' } );
+            if ( row.in_time && !row.out_time ) return res.json( { status: 'marked_in' } );
+            if ( row.in_time && row.out_time ) return res.json( { status: 'marked_out' } );
+        } );
     } );
 } );
 
@@ -476,26 +567,56 @@ app.post( '/mark-in', requireLogin, ( req, res ) =>
     const now = moment();
     const date = now.format( 'YYYY-MM-DD' );
     const time = now.format( 'HH:mm:ss' );
-    const selfiePath = path.join( selfiesDir, user.name, `${ user.name }_${ date }_${ time.replace( /:/g, '-' ) }_in.jpg` );
-    const base64Data = selfie.replace( /^data:image\/jpeg;base64,/, "" );
-    fs.writeFile( selfiePath, base64Data, 'base64', ( err ) => { if ( err ) console.error( err ); } );
-    db.run( `INSERT INTO attendance_${ user.name } (date, in_time, in_latitude, in_longitude, in_selfie_path) VALUES (?, ?, ?, ?, ?)`,
-        [ date, time, latitude, longitude, selfiePath ], function ( err )
+
+    function doMarkIn ()
     {
-        if ( err )
+        const selfiePath = path.join( selfiesDir, user.name, `${ user.name }_${ date }_${ time.replace( /:/g, '-' ) }_in.jpg` );
+        const base64Data = ( selfie || '' ).replace( /^data:image\/jpeg;base64,/, "" );
+        fs.writeFile( selfiePath, base64Data, 'base64', ( err ) => { if ( err ) console.error( err ); } );
+
+        db.run( `INSERT INTO attendance_${ user.name } (date, in_time, in_latitude, in_longitude, in_selfie_path) VALUES (?, ?, ?, ?, ?)`,
+            [ date, time, latitude, longitude, selfiePath ], function ( err )
         {
-            console.error( err.message );
+            if ( err )
+            {
+                console.error( err.message );
+                const acceptsJson = req.headers && req.headers.accept && req.headers.accept.indexOf( 'application/json' ) !== -1;
+                const isXhr = req.xhr || ( req.headers && req.headers[ 'x-requested-with' ] === 'XMLHttpRequest' );
+                if ( acceptsJson || isXhr ) return res.status( 500 ).json( { success: false, message: 'Could not mark in. Please try again.' } );
+                return res.redirect( '/dashboard' );
+            }
+            console.log( `${ user.name } marked in on ${ now.format( 'DD-MMMM-YYYY' ) } at ${ now.format( 'h:mm A' ) }` );
             const acceptsJson = req.headers && req.headers.accept && req.headers.accept.indexOf( 'application/json' ) !== -1;
             const isXhr = req.xhr || ( req.headers && req.headers[ 'x-requested-with' ] === 'XMLHttpRequest' );
-            if ( acceptsJson || isXhr ) return res.status( 500 ).json( { success: false, message: 'Could not mark in. Please try again.' } );
-            return res.redirect( '/dashboard' );
-        }
-        console.log( `${ user.name } marked in on ${ now.format( 'DD-MMMM-YYYY' ) } at ${ now.format( 'h:mm A' ) }` );
-        const acceptsJson = req.headers && req.headers.accept && req.headers.accept.indexOf( 'application/json' ) !== -1;
-        const isXhr = req.xhr || ( req.headers && req.headers[ 'x-requested-with' ] === 'XMLHttpRequest' );
-        if ( acceptsJson || isXhr ) return res.json( { success: true, message: 'Marked in successfully.' } );
-        res.redirect( '/dashboard' );
-    } );
+            if ( acceptsJson || isXhr ) return res.json( { success: true, message: 'Marked in successfully.' } );
+            res.redirect( '/dashboard' );
+        } );
+    }
+
+    // Non-owner users must not mark attendance on off-days
+    if ( user && user.role !== 'owner' )
+    {
+        return checkIfDateIsOff( date, ( err, off ) =>
+        {
+            if ( err )
+            {
+                console.error( 'Error checking off-day', err );
+                return res.status( 500 ).json( { success: false, message: 'Could not verify off-day status.' } );
+            }
+            if ( off && off.off )
+            {
+                const msg = off.type === 'ad_hoc' ? `Today has been declared off: ${ off.reason || '' }` : ( off.type === 'holiday' ? `Today is a holiday: ${ off.name }` : 'Today is a weekly off day.' );
+                const acceptsJson = req.headers && req.headers.accept && req.headers.accept.indexOf( 'application/json' ) !== -1;
+                if ( acceptsJson || req.xhr ) return res.status( 403 ).json( { success: false, message: msg } );
+                return res.redirect( '/dashboard' );
+            }
+            doMarkIn();
+        } );
+    }
+
+    // owner or fallback
+    doMarkIn();
+
 } );
 
 app.post( '/mark-out', requireLogin, ( req, res ) =>
@@ -505,26 +626,55 @@ app.post( '/mark-out', requireLogin, ( req, res ) =>
     const now = moment();
     const date = now.format( 'YYYY-MM-DD' );
     const time = now.format( 'HH:mm:ss' );
-    const selfiePath = path.join( selfiesDir, user.name, `${ user.name }_${ date }_${ time.replace( /:/g, '-' ) }_out.jpg` );
-    const base64Data = selfie.replace( /^data:image\/jpeg;base64,/, "" );
-    fs.writeFile( selfiePath, base64Data, 'base64', ( err ) => { if ( err ) console.error( err ); } );
-    db.run( `UPDATE attendance_${ user.name } SET out_time = ?, out_latitude = ?, out_longitude = ?, out_selfie_path = ? WHERE date = ?`,
-        [ time, latitude, longitude, selfiePath, date ], function ( err )
+    function doMarkOut ()
     {
-        if ( err )
+        const selfiePath = path.join( selfiesDir, user.name, `${ user.name }_${ date }_${ time.replace( /:/g, '-' ) }_out.jpg` );
+        const base64Data = ( selfie || '' ).replace( /^data:image\/jpeg;base64,/, "" );
+        fs.writeFile( selfiePath, base64Data, 'base64', ( err ) => { if ( err ) console.error( err ); } );
+        db.run( `UPDATE attendance_${ user.name } SET out_time = ?, out_latitude = ?, out_longitude = ?, out_selfie_path = ? WHERE date = ?`,
+            [ time, latitude, longitude, selfiePath, date ], function ( err )
         {
-            console.error( err.message );
+            if ( err )
+            {
+                console.error( err.message );
+                const acceptsJson = req.headers && req.headers.accept && req.headers.accept.indexOf( 'application/json' ) !== -1;
+                const isXhr = req.xhr || ( req.headers && req.headers[ 'x-requested-with' ] === 'XMLHttpRequest' );
+                if ( acceptsJson || isXhr ) return res.status( 500 ).json( { success: false, message: 'Could not mark out. Please try again.' } );
+                return res.redirect( '/dashboard' );
+            }
+            console.log( `${ user.name } marked out on ${ now.format( 'DD-MMMM-YYYY' ) } at ${ now.format( 'h:mm A' ) }` );
             const acceptsJson = req.headers && req.headers.accept && req.headers.accept.indexOf( 'application/json' ) !== -1;
             const isXhr = req.xhr || ( req.headers && req.headers[ 'x-requested-with' ] === 'XMLHttpRequest' );
-            if ( acceptsJson || isXhr ) return res.status( 500 ).json( { success: false, message: 'Could not mark out. Please try again.' } );
-            return res.redirect( '/dashboard' );
-        }
-        console.log( `${ user.name } marked out on ${ now.format( 'DD-MMMM-YYYY' ) } at ${ now.format( 'h:mm A' ) }` );
-        const acceptsJson = req.headers && req.headers.accept && req.headers.accept.indexOf( 'application/json' ) !== -1;
-        const isXhr = req.xhr || ( req.headers && req.headers[ 'x-requested-with' ] === 'XMLHttpRequest' );
-        if ( acceptsJson || isXhr ) return res.json( { success: true, message: 'Marked out successfully.' } );
-        res.redirect( '/dashboard' );
-    } );
+            if ( acceptsJson || isXhr ) return res.json( { success: true, message: 'Marked out successfully.' } );
+            res.redirect( '/dashboard' );
+        } );
+    }
+
+    // Prevent marking out on owner-declared off days for non-owner users
+    if ( user && user.role !== 'owner' )
+    {
+        return checkIfDateIsOff( date, ( err, off ) =>
+        {
+            if ( err )
+            {
+                console.error( 'Error checking off-day', err );
+                return res.status( 500 ).json( { success: false, message: 'Could not verify off-day status.' } );
+            }
+            if ( off && off.off )
+            {
+                const msg = off.type === 'ad_hoc' ? `Today has been declared off: ${ off.reason || '' }` : ( off.type === 'holiday' ? `Today is a holiday: ${ off.name }` : 'Today is a weekly off day.' );
+                const acceptsJson = req.headers && req.headers.accept && req.headers.accept.indexOf( 'application/json' ) !== -1;
+                if ( acceptsJson || req.xhr ) return res.status( 403 ).json( { success: false, message: msg } );
+                return res.redirect( '/dashboard' );
+            }
+
+            // proceed normally
+            doMarkOut();
+        } );
+    }
+
+    // owner or fallback
+    doMarkOut();
 } );
 
 app.get( '/attendance', requireLogin, ( req, res ) =>
@@ -737,45 +887,102 @@ app.get( '/admin/users', requireAdmin, ( req, res ) =>
     } );
 } );
 
-// Get current desktop access setting (admin only)
-app.get( '/admin/settings/desktop', requireAdmin, ( req, res ) =>
+// --- App settings for Owner: weekly off, ad-hoc offs, holidays ---
+app.get( '/admin/settings/app', requireOwner, ( req, res ) =>
 {
-    db.get( 'SELECT value FROM settings WHERE name = ?', [ 'desktop_enabled' ], ( err, row ) =>
+    // return desktop_enabled, weekly_off_mode, ad_hoc_offs, holidays
+    db.get( "SELECT value FROM settings WHERE name = ?", [ 'desktop_enabled' ], ( err, drow ) =>
     {
         if ( err ) return res.status( 500 ).json( { error: err.message } );
-        const enabled = row && row.value ? ( row.value === '1' ) : true;
-        res.json( { enabled } );
+        const desktop_enabled = drow && drow.value ? drow.value === '1' : true;
+        db.get( "SELECT value FROM settings WHERE name = ?", [ 'weekly_off_mode' ], ( err2, wrow ) =>
+        {
+            if ( err2 ) return res.status( 500 ).json( { error: err2.message } );
+            const weekly_off_mode = wrow && wrow.value ? wrow.value : '1';
+            db.all( 'SELECT id, date, reason, created_by, created_at FROM ad_hoc_offs ORDER BY date ASC', [], ( err3, adhocs ) =>
+            {
+                if ( err3 ) return res.status( 500 ).json( { error: err3.message } );
+                db.all( 'SELECT id, name, month_day FROM holidays ORDER BY month_day ASC', [], ( err4, hols ) =>
+                {
+                    if ( err4 ) return res.status( 500 ).json( { error: err4.message } );
+                    return res.json( { desktop_enabled, weekly_off_mode, ad_hoc_offs: adhocs || [], holidays: hols || [] } );
+                } );
+            } );
+        } );
     } );
 } );
 
-// Update desktop access setting (owner only)
-app.post( '/admin/settings/desktop', requireAdmin, ( req, res ) =>
+// Update general app settings (owner only)
+app.post( '/admin/settings/app', requireOwner, ( req, res ) =>
 {
-    // Only the owner may change this setting
-    if ( !req.session.user || req.session.user.role !== 'owner' )
-    {
-        return res.status( 403 ).json( { success: false, message: 'Only the Owner may change app settings.' } );
-    }
+    const { desktop_enabled, weekly_off_mode } = req.body || {};
+    // validate weekly_off_mode
+    const allowed = [ '1', '2', '3', '4' ];
+    const mode = ( '' + ( weekly_off_mode || '1' ) ).trim();
+    if ( allowed.indexOf( mode ) === -1 ) return res.status( 400 ).json( { success: false, message: 'Invalid weekly off mode.' } );
 
-    const enabled = req.body && req.body.enabled === '1' ? '1' : '0';
+    const enabled = ( desktop_enabled === true || desktop_enabled === '1' || desktop_enabled === 1 ) ? '1' : '0';
+    db.run( 'INSERT OR REPLACE INTO settings (name, value) VALUES (?, ?)', [ 'desktop_enabled', enabled ] );
+    db.run( 'INSERT OR REPLACE INTO settings (name, value) VALUES (?, ?)', [ 'weekly_off_mode', mode ] );
+    return res.json( { success: true } );
+} );
 
-    db.run( 'INSERT OR REPLACE INTO settings (name, value) VALUES (?, ?)', [ 'desktop_enabled', enabled ], function ( err )
+// Add ad-hoc off (owner only). date must be > today (at least one day ahead)
+app.post( '/admin/settings/app/ad-hoc/add', requireOwner, ( req, res ) =>
+{
+    const { date, reason } = req.body || {};
+    if ( !date ) return res.status( 400 ).json( { success: false, message: 'Date is required.' } );
+    const m = moment( date, 'YYYY-MM-DD', true );
+    if ( !m.isValid() ) return res.status( 400 ).json( { success: false, message: 'Date must be in YYYY-MM-DD format.' } );
+    // must be at least one day ahead
+    if ( !m.isAfter( moment(), 'day' ) ) return res.status( 400 ).json( { success: false, message: 'Ad-hoc off must be declared at least one day before.' } );
+    const r = ( reason || '' ).toString().substring( 0, 250 );
+    const ts = new Date().toISOString();
+    db.run( 'INSERT OR REPLACE INTO ad_hoc_offs (date, reason, created_by, created_at) VALUES (?, ?, ?, ?)', [ date, r, req.session.user.name, ts ], function ( err )
     {
         if ( err ) return res.status( 500 ).json( { success: false, message: err.message } );
-
-        if ( enabled === '0' )
-        {
-            // record when desktop access was disabled for reference
-            const ts = new Date().toISOString();
-            db.run( 'INSERT OR REPLACE INTO settings (name, value) VALUES (?, ?)', [ 'desktop_disabled_at', ts ] );
-        } else
-        {
-            db.run( 'INSERT OR REPLACE INTO settings (name, value) VALUES (?, ?)', [ 'desktop_disabled_at', '' ] );
-        }
-
-        return res.json( { success: true, enabled: enabled === '1' } );
+        return res.json( { success: true } );
     } );
 } );
+
+// Remove ad-hoc off (owner only)
+app.post( '/admin/settings/app/ad-hoc/remove', requireOwner, ( req, res ) =>
+{
+    const { id } = req.body || {};
+    if ( !id ) return res.status( 400 ).json( { success: false, message: 'id is required.' } );
+    db.run( 'DELETE FROM ad_hoc_offs WHERE id = ?', [ id ], function ( err )
+    {
+        if ( err ) return res.status( 500 ).json( { success: false, message: err.message } );
+        return res.json( { success: true } );
+    } );
+} );
+
+// Add holiday (owner only). month_day format 'MM-DD'
+app.post( '/admin/settings/app/holidays/add', requireOwner, ( req, res ) =>
+{
+    const { name, month_day } = req.body || {};
+    if ( !name || !month_day ) return res.status( 400 ).json( { success: false, message: 'name and month_day are required.' } );
+    if ( !/^[0-1][0-9]-[0-3][0-9]$/.test( month_day ) ) return res.status( 400 ).json( { success: false, message: 'month_day must be MM-DD.' } );
+    db.run( 'INSERT INTO holidays (name, month_day) VALUES (?, ?)', [ name.toString().substring( 0, 100 ), month_day ], function ( err )
+    {
+        if ( err ) return res.status( 500 ).json( { success: false, message: err.message } );
+        return res.json( { success: true } );
+    } );
+} );
+
+// Remove holiday (owner only)
+app.post( '/admin/settings/app/holidays/remove', requireOwner, ( req, res ) =>
+{
+    const { id } = req.body || {};
+    if ( !id ) return res.status( 400 ).json( { success: false, message: 'id is required.' } );
+    db.run( 'DELETE FROM holidays WHERE id = ?', [ id ], function ( err )
+    {
+        if ( err ) return res.status( 500 ).json( { success: false, message: err.message } );
+        return res.json( { success: true } );
+    } );
+} );
+
+// Desktop access toggle now managed via /admin/settings/app (owner-only)
 
 // Add new user (admins only)
 app.post( '/admin/users/add', requireAdmin, ( req, res ) =>

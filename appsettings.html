@@ -1,0 +1,249 @@
+<!doctype html>
+<html>
+
+    <head>
+        <meta charset="utf-8">
+        <meta name="viewport" content="width=device-width,initial-scale=1">
+        <title>App Settings</title>
+        <link rel="stylesheet" href="/css/mobile.css">
+        <script src="/js/ui.js"></script>
+        <style>
+            .small {
+                font-size: 0.9rem;
+                color: #666
+            }
+
+            .list-row {
+                display: flex;
+                justify-content: space-between;
+                gap: 8px;
+                align-items: center
+            }
+
+            .list-row div {
+                flex: 1
+            }
+        </style>
+    </head>
+
+    <body>
+        <div class="container">
+            <h1>App Settings</h1>
+            <p>Owner controls. <a href="/dashboard">Back</a> | <a href="/logout">Logout</a></p>
+
+            <div class="section">
+                <h2>Desktop Access</h2>
+                <label style="display:inline-flex;align-items:center;gap:8px">
+                    <input type="checkbox" id="desktop-enabled"> <span>Allow Desktop Access for non-owners</span>
+                </label>
+                <div style="margin-top:8px" class="small">Toggle whether employees/managers can sign in from desktop
+                    browsers.</div>
+            </div>
+
+            <div class="section">
+                <h2>Weekly Off Schedule</h2>
+                <select id="weekly-off-mode">
+                    <option value="1">All Sundays off (default)</option>
+                    <option value="2">All Sundays and Saturdays off</option>
+                    <option value="3">Sundays + 2nd & 4th Saturdays off</option>
+                    <option value="4">Sundays + alternate Saturdays (1st,3rd,5th)</option>
+                </select>
+                <div class="small" style="margin-top:8px">Choose the schedule applied across the company.</div>
+                <div style="margin-top:8px"><button id="save-weekly">Save Weekly Off</button></div>
+            </div>
+
+            <div class="section">
+                <h2>Ad-hoc Off Days</h2>
+                <form id="add-adhoc-form">
+                    <label for="adhoc-date">Date (YYYY-MM-DD)</label>
+                    <input type="date" id="adhoc-date" name="date" required>
+                    <label for="adhoc-reason">Reason</label>
+                    <input type="text" id="adhoc-reason" maxlength="250" required>
+                    <div style="margin-top:8px"><button type="submit">Add Ad-hoc Off</button></div>
+                </form>
+                <hr>
+                <div id="adhoc-list">
+                    <p>Loading ad-hoc off days...</p>
+                </div>
+                <div class="small">Ad-hoc off days must be declared at least one day before the date.</div>
+            </div>
+
+            <div class="section">
+                <h2>Yearly Celebrations (Holiday Calendar)</h2>
+                <form id="add-holiday-form">
+                    <label for="holiday-name">Name</label>
+                    <input type="text" id="holiday-name" name="name" required>
+                    <label for="holiday-monthday">Month and Day</label>
+                    <input type="text" id="holiday-monthday" name="month_day" placeholder="MM-DD" required>
+                    <div style="margin-top:8px"><button type="submit">Add Holiday</button></div>
+                </form>
+                <hr>
+                <div id="holiday-list">
+                    <p>Loading holidays...</p>
+                </div>
+                <div class="small">Enter recurring holidays as month-day pairs (e.g., 08-15 for 15 Aug).</div>
+            </div>
+        </div>
+
+        <script>
+            async function fetchSettings ()
+            {
+                const res = await fetch( '/admin/settings/app' );
+                if ( !res.ok ) { showAppModal( 'Could not load app settings.', 'error' ); return null; }
+                return res.json();
+            }
+
+            function formatDatePretty ( iso )
+            {
+                if ( !iso ) return iso;
+                const d = new Date( iso + 'T00:00:00' );
+                return `${ d.getFullYear() }-${ ( d.getMonth() + 1 ).toString().padStart( 2, '0' ) }-${ d.getDate().toString().padStart( 2, '0' ) }`;
+            }
+
+            window.addEventListener( 'load', async () =>
+            {
+                const s = await fetchSettings();
+                if ( !s ) return;
+                document.getElementById( 'desktop-enabled' ).checked = !!s.desktop_enabled;
+                document.getElementById( 'weekly-off-mode' ).value = s.weekly_off_mode || '1';
+
+                // Immediate save when desktop access checkbox is toggled
+                const desktopCheckbox = document.getElementById( 'desktop-enabled' );
+                desktopCheckbox.addEventListener( 'change', async () =>
+                {
+                    const enabled = desktopCheckbox.checked ? '1' : '0';
+                    try
+                    {
+                        const res = await fetch( '/admin/settings/app', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify( { desktop_enabled: enabled, weekly_off_mode: document.getElementById( 'weekly-off-mode' ).value || '1' } ) } );
+                        const body = await res.json();
+                        if ( res.ok && body.success )
+                        {
+                            showAppModal( desktopCheckbox.checked ? 'Desktop access enabled.' : 'Desktop access disabled.', 'success' );
+                        } else
+                        {
+                            showAppModal( body.message || 'Could not update desktop access setting.', 'error' );
+                            desktopCheckbox.checked = !desktopCheckbox.checked; // revert
+                        }
+                    } catch ( e )
+                    {
+                        console.error( e );
+                        showAppModal( 'Failed to update desktop access. Please try again.', 'error' );
+                        desktopCheckbox.checked = !desktopCheckbox.checked; // revert
+                    }
+                } );
+
+                // Ad-hoc list
+                const adhocList = document.getElementById( 'adhoc-list' );
+                if ( s.ad_hoc_offs && s.ad_hoc_offs.length )
+                {
+                    adhocList.innerHTML = '';
+                    s.ad_hoc_offs.forEach( a =>
+                    {
+                        const row = document.createElement( 'div' );
+                        row.className = 'card list-row';
+                        row.innerHTML = `<div>${ formatDatePretty( a.date ) } — ${ a.reason || '' }</div><div style="text-align:right"><button data-id="${ a.id }" class="remove-adhoc">Remove</button></div>`;
+                        adhocList.appendChild( row );
+                    } );
+                } else
+                {
+                    adhocList.innerHTML = '<p>No ad-hoc off days declared.</p>';
+                }
+
+                // Holidays
+                const holList = document.getElementById( 'holiday-list' );
+                if ( s.holidays && s.holidays.length )
+                {
+                    holList.innerHTML = '';
+                    s.holidays.forEach( h =>
+                    {
+                        const row = document.createElement( 'div' );
+                        row.className = 'card list-row';
+                        row.innerHTML = `<div>${ h.month_day } — ${ h.name }</div><div style="text-align:right"><button data-id="${ h.id }" class="remove-holiday">Remove</button></div>`;
+                        holList.appendChild( row );
+                    } );
+                } else
+                {
+                    holList.innerHTML = '<p>No holidays configured.</p>';
+                }
+
+                // Wire up remove buttons
+                document.querySelectorAll( '.remove-adhoc' ).forEach( btn =>
+                {
+                    btn.addEventListener( 'click', async ( e ) =>
+                    {
+                        const id = btn.getAttribute( 'data-id' );
+                        if ( !confirm( 'Remove this ad-hoc off day?' ) ) return;
+                        try
+                        {
+                            const res = await fetch( '/admin/settings/app/ad-hoc/remove', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify( { id } ) } );
+                            const body = await res.json();
+                            if ( res.ok && body.success ) { showAppModal( 'Removed.', 'success' ); window.location.reload(); }
+                            else showAppModal( body.message || 'Failed to remove.', 'error' );
+                        } catch ( e ) { console.error( e ); showAppModal( 'Failed to remove.', 'error' ); }
+                    } );
+                } );
+
+                document.querySelectorAll( '.remove-holiday' ).forEach( btn =>
+                {
+                    btn.addEventListener( 'click', async ( e ) =>
+                    {
+                        const id = btn.getAttribute( 'data-id' );
+                        if ( !confirm( 'Remove this holiday?' ) ) return;
+                        try
+                        {
+                            const res = await fetch( '/admin/settings/app/holidays/remove', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify( { id } ) } );
+                            const body = await res.json();
+                            if ( res.ok && body.success ) { showAppModal( 'Removed.', 'success' ); window.location.reload(); }
+                            else showAppModal( body.message || 'Failed to remove.', 'error' );
+                        } catch ( e ) { console.error( e ); showAppModal( 'Failed to remove.', 'error' ); }
+                    } );
+                } );
+
+                // Save weekly
+                document.getElementById( 'save-weekly' ).addEventListener( 'click', async () =>
+                {
+                    const mode = document.getElementById( 'weekly-off-mode' ).value;
+                    const enabled = document.getElementById( 'desktop-enabled' ).checked ? '1' : '0';
+                    try
+                    {
+                        const res = await fetch( '/admin/settings/app', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify( { weekly_off_mode: mode, desktop_enabled: enabled } ) } );
+                        const body = await res.json();
+                        if ( res.ok && body.success ) showAppModal( 'Settings saved.', 'success' ); else showAppModal( body.message || 'Could not save.', 'error' );
+                    } catch ( e ) { console.error( e ); showAppModal( 'Could not save settings.', 'error' ); }
+                } );
+
+                // Add adhoc
+                document.getElementById( 'add-adhoc-form' ).addEventListener( 'submit', async ( e ) =>
+                {
+                    e.preventDefault();
+                    const date = document.getElementById( 'adhoc-date' ).value;
+                    const reason = document.getElementById( 'adhoc-reason' ).value;
+                    try
+                    {
+                        const res = await fetch( '/admin/settings/app/ad-hoc/add', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify( { date, reason } ) } );
+                        const body = await res.json();
+                        if ( res.ok && body.success ) { showAppModal( 'Ad-hoc off added.', 'success' ); window.location.reload(); }
+                        else showAppModal( body.message || 'Could not add ad-hoc off.', 'error' );
+                    } catch ( e ) { console.error( e ); showAppModal( 'Could not add ad-hoc off.', 'error' ); }
+                } );
+
+                // Add holiday
+                document.getElementById( 'add-holiday-form' ).addEventListener( 'submit', async ( e ) =>
+                {
+                    e.preventDefault();
+                    const name = document.getElementById( 'holiday-name' ).value;
+                    const month_day = document.getElementById( 'holiday-monthday' ).value;
+                    try
+                    {
+                        const res = await fetch( '/admin/settings/app/holidays/add', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify( { name, month_day } ) } );
+                        const body = await res.json();
+                        if ( res.ok && body.success ) { showAppModal( 'Holiday added.', 'success' ); window.location.reload(); }
+                        else showAppModal( body.message || 'Could not add holiday.', 'error' );
+                    } catch ( e ) { console.error( e ); showAppModal( 'Could not add holiday.', 'error' ); }
+                } );
+
+            } );
+        </script>
+    </body>
+
+</html>
