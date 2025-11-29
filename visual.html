@@ -220,6 +220,7 @@
             </div>
 
             <div id="calendar" class="calendar"></div>
+            <div id="calendar-loading" style="display:none;text-align:center;margin-top:8px">Loading calendar…</div>
 
             <div class="legend">
                 <div class="item"><span class="swatch status-present"></span> Present</div>
@@ -289,40 +290,19 @@
                 const year = cur.getFullYear();
                 const month = cur.getMonth() + 1; // 1-based
                 const username = selUser || '';
+                const loadingEl = document.getElementById( 'calendar-loading' );
+                const container = document.getElementById( 'calendar' );
                 try
                 {
+                    loadingEl.style.display = 'block';
+                    container.style.opacity = '0.4';
                     const res = await fetch( `/visual/data?username=${ encodeURIComponent( username ) }&year=${ year }&month=${ month }` );
-                    if ( !res.ok ) { showAppModal( 'Could not load calendar', 'error' ); return; }
-                    const html = await res.text();
-                    const container = document.getElementById( 'calendar' );
-                    container.innerHTML = html;
-                    setMonthLabel( new Date( year, month - 1, 1 ) );
-
-                    // attach click handlers to day tiles (data attributes set by server)
-                    Array.from( container.querySelectorAll( '.day' ) ).forEach( el =>
-                    {
-                        el.addEventListener( 'click', () =>
-                        {
-                            const date = el.getAttribute( 'data-date' );
-                            const status = el.getAttribute( 'data-status' );
-                            const inTime = el.getAttribute( 'data-in' );
-                            const outTime = el.getAttribute( 'data-out' );
-                            const holiday = el.getAttribute( 'data-holiday' );
-                            const adhoc = el.getAttribute( 'data-adhoc' );
-                            const leave = el.getAttribute( 'data-leave' );
-
-                            const body = [];
-                            body.push( `${ formatDateShort( date ) } — ${ status }` );
-                            if ( inTime ) body.push( 'In: ' + formatTimeShort( inTime ) );
-                            if ( outTime ) body.push( 'Out: ' + formatTimeShort( outTime ) );
-                            if ( holiday ) body.push( 'Holiday: ' + holiday );
-                            if ( adhoc ) body.push( 'Ad-hoc: ' + adhoc );
-                            if ( leave ) body.push( 'Leave: ' + leave );
-
-                            showAppModal( body.join( '\n' ), '' );
-                        } );
-                    } );
+                    if ( !res.ok ) { const t = await res.text().catch( () => null ); showAppModal( t || 'Could not load calendar', 'error' ); return; }
+                    const payload = await res.json();
+                    if ( !payload || !Array.isArray( payload.days ) ) { showAppModal( 'Could not load calendar', 'error' ); return; }
+                    renderCalendar( payload.days, payload.year, payload.month );
                 } catch ( e ) { console.error( e ); showAppModal( 'Could not load calendar', 'error' ); }
+                finally { loadingEl.style.display = 'none'; container.style.opacity = ''; }
             }
 
             function renderCalendar ( days, year, month )
@@ -352,16 +332,17 @@
                     else if ( cls === 'absent' ) { el.classList.add( 'status-absent' ); }
 
                     el.innerHTML = `<div class="date">${ d }</div><div style="padding-top:18px">${ info.summary || '' }</div>`;
-                    el.title = `${ info.title || info.summary || info.status }`;
+                    el.title = `${ formatDateShort( dateStr ) } — ${ ( info.title || info.summary || info.status ) }`;
                     el.addEventListener( 'click', () =>
                     {
                         const body = [];
-                        body.push( `${ dateStr } — ${ info.status }` );
-                        if ( info.in_time ) body.push( 'In: ' + info.in_time );
-                        if ( info.out_time ) body.push( 'Out: ' + info.out_time );
+                        function capitalize ( s ) { if ( !s ) return s; return s.charAt( 0 ).toUpperCase() + s.slice( 1 ); }
+                        body.push( `${ formatDateShort( dateStr ) } — ${ capitalize( info.status ) }` );
+                        if ( info.in_time ) body.push( 'In: ' + formatTimeShort( info.in_time ) );
+                        if ( info.out_time ) body.push( 'Out: ' + formatTimeShort( info.out_time ) );
                         if ( info.holiday_name ) body.push( 'Holiday: ' + info.holiday_name );
                         if ( info.adhoc_reason ) body.push( 'Ad-hoc: ' + info.adhoc_reason );
-                        if ( info.leave && info.leave.status ) body.push( 'Leave: ' + info.leave.status + ' — ' + ( info.leave.reason || '' ) );
+                        if ( info.leave && info.leave.status ) body.push( 'Leave: ' + capitalize( info.leave.status ) + ' — ' + ( info.leave.reason || '' ) );
                         showAppModal( body.join( '\n' ), '' );
                     } );
                     cal.appendChild( el );
@@ -383,11 +364,23 @@
                 if ( users && Array.isArray( users ) )
                 {
                     sel.innerHTML = '';
-                    // allow showing self at top
-                    users.forEach( u => { const opt = document.createElement( 'option' ); opt.value = u.name; opt.textContent = u.name; sel.appendChild( opt ); } );
-                    // set default
-                    sel.value = selUser || sel.options[ 0 ].value;
-                    sel.addEventListener( 'change', () => { selUser = sel.value; loadCalendar(); } );
+                    // exclude owner accounts from the selector (owners do not mark attendance)
+                    const filtered = users.filter( u => ( u && u.role ) ? u.role !== 'owner' : true );
+                    filtered.forEach( u => { const opt = document.createElement( 'option' ); opt.value = u.name; opt.textContent = u.name; sel.appendChild( opt ); } );
+
+                    // If there are no selectable users (rare), hide the selector
+                    if ( sel.options.length === 0 )
+                    {
+                        sel.style.display = 'none';
+                    } else
+                    {
+                        // set default: prefer selUser only if it's present in the options, otherwise pick the first option
+                        const hasSelUser = Array.from( sel.options ).some( o => o.value === selUser );
+                        sel.value = hasSelUser ? selUser : sel.options[ 0 ].value;
+                        // ensure selUser reflects the actual selected option (important for initial load)
+                        selUser = sel.value;
+                        sel.addEventListener( 'change', () => { selUser = sel.value; loadCalendar(); } );
+                    }
                 } else
                 {
                     // hide selector

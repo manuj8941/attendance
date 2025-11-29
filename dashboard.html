@@ -680,7 +680,8 @@
                             const rawLeaves = await rawRes.json();
                             const overlap = rawLeaves.some( rl =>
                             {
-                                if ( rl.status === 'withdrawn' ) return false; // ignore withdrawn
+                                // ignore withdrawn and rejected requests when checking overlap (server now ignores rejected too)
+                                if ( rl.status === 'withdrawn' || rl.status === 'rejected' ) return false;
                                 const aStart = new Date( rl.start_date );
                                 const aEnd = new Date( rl.end_date );
                                 const reqStart = new Date( start );

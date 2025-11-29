@@ -609,41 +609,101 @@ app.get( '/visual/data', requireLogin, async ( req, res ) =>
         const year = parseInt( req.query.year || ( new Date() ).getFullYear(), 10 );
         const month = parseInt( req.query.month || ( new Date() ).getMonth() + 1, 10 );
 
-        if ( !username ) return res.status( 400 ).send( 'username required' );
+        if ( !username ) return res.status( 400 ).json( { error: 'username required' } );
+
+        // basic username validation to avoid SQL injection via table name
+        if ( !/^[A-Za-z0-9_]+$/.test( username ) ) return res.status( 400 ).json( { error: 'invalid username' } );
 
         const requester = req.session.user;
-        if ( requester.role === 'employee' && requester.name !== username ) return res.status( 403 ).send( 'Not authorized' );
+        if ( requester.role === 'employee' && requester.name !== username ) return res.status( 403 ).json( { error: 'Not authorized' } );
 
-        const userRow = await new Promise( ( resolve ) => db.get( 'SELECT name FROM users WHERE name = ?', [ username ], ( err, row ) => resolve( row || null ) ) );
-        if ( !userRow ) return res.status( 404 ).send( 'User not found' );
+        const userRow = await new Promise( ( resolve ) => db.get( 'SELECT name, role FROM users WHERE name = ?', [ username ], ( err, row ) => resolve( row || null ) ) );
+        if ( !userRow ) return res.status( 404 ).json( { error: 'User not found' } );
+        // Defense-in-depth: do not expose visual calendar data for Owner accounts
+        if ( userRow.role === 'owner' ) return res.status( 404 ).json( { error: 'User not found' } );
 
         const mfirst = moment( `${ year }-${ ( '' + month ).padStart( 2, '0' ) }-01`, 'YYYY-MM-DD' );
-        if ( !mfirst.isValid() ) return res.status( 400 ).send( 'Invalid year/month' );
+        if ( !mfirst.isValid() ) return res.status( 400 ).json( { error: 'Invalid year/month' } );
         const daysInMonth = mfirst.daysInMonth();
-        // start week on Monday: shift JS day (0=Sun) so Monday=0
-        const startDow = ( mfirst.day() + 6 ) % 7; // 0=Mon .. 6=Sun
+        const firstDate = mfirst.format( 'YYYY-MM-DD' );
+        const lastDate = mfirst.clone().endOf( 'month' ).format( 'YYYY-MM-DD' );
 
-        const checkOff = ( date ) => new Promise( ( resolve, reject ) => checkIfDateIsOff( date, ( err, off ) => err ? reject( err ) : resolve( off ) ) );
+        // Fetch required data in parallel (bulk queries)
+        const attendancePromise = new Promise( ( resolve ) =>
+        {
+            // attendance table might not exist for owner; catch errors
+            db.all( `SELECT * FROM attendance_${ username } WHERE date BETWEEN ? AND ?`, [ firstDate, lastDate ], ( err, rows ) =>
+            {
+                if ( err ) return resolve( [] );
+                return resolve( rows || [] );
+            } );
+        } );
 
-        // Build HTML fragment for the month grid. We'll emit the same .day tiles the client expects.
-        let html = '';
+        const leavesPromise = new Promise( ( resolve ) => db.all( `SELECT leave_id, start_date, end_date, reason, status FROM leaves WHERE username = ? AND status = 'approved' AND NOT (end_date < ? OR start_date > ?)`, [ username, firstDate, lastDate ], ( err, rows ) => resolve( err ? [] : ( rows || [] ) ) ) );
 
-        // leading blanks
-        for ( let i = 0; i < startDow; i++ ) html += `<div class="day"></div>`;
+        const adhocPromise = new Promise( ( resolve ) => db.all( 'SELECT date, reason FROM ad_hoc_offs WHERE date BETWEEN ? AND ?', [ firstDate, lastDate ], ( err, rows ) => resolve( err ? [] : ( rows || [] ) ) ) );
 
+        const holidaysPromise = new Promise( ( resolve ) => db.all( 'SELECT id, name, month_day, date FROM holidays', [], ( err, rows ) => resolve( err ? [] : ( rows || [] ) ) ) );
+
+        const weeklyModePromise = new Promise( ( resolve ) => db.get( "SELECT value FROM settings WHERE name = ?", [ 'weekly_off_mode' ], ( err, row ) => resolve( ( row && row.value ) ? row.value : '1' ) ) );
+
+        const [ attendanceRows, leaveRows, adhocRows, holidaysRows, weeklyMode ] = await Promise.all( [ attendancePromise, leavesPromise, adhocPromise, holidaysPromise, weeklyModePromise ] );
+
+        // Build lookup maps
+        const attendanceMap = {};
+        ( attendanceRows || [] ).forEach( r => { if ( r && r.date ) attendanceMap[ r.date ] = r; } );
+
+        const adhocMap = {};
+        ( adhocRows || [] ).forEach( a => { adhocMap[ a.date ] = a.reason || ''; } );
+
+        const holidaysByDate = {};
+        const holidaysByMMDD = {};
+        ( holidaysRows || [] ).forEach( h =>
+        {
+            if ( h.date ) holidaysByDate[ h.date ] = h.name || '';
+            if ( h.month_day ) holidaysByMMDD[ h.month_day ] = h.name || '';
+        } );
+
+        const leaves = leaveRows || [];
+
+        const days = [];
         for ( let d = 1; d <= daysInMonth; d++ )
         {
             const date = `${ year }-${ ( '' + month ).padStart( 2, '0' ) }-${ ( '' + d ).padStart( 2, '0' ) }`;
 
-            // attendance row (table may not exist if owner)
-            const att = await new Promise( ( resolve ) => db.get( `SELECT * FROM attendance_${ username } WHERE date = ?`, [ date ], ( err, row ) => resolve( row || null ) ) ).catch( () => null );
-            const off = await checkOff( date );
-            const leave = await new Promise( ( resolve ) => db.get( `SELECT leave_id, status, reason FROM leaves WHERE username = ? AND status = 'approved' AND start_date <= ? AND end_date >= ? LIMIT 1`, [ username, date, date ], ( err, row ) => resolve( row || null ) ) ).catch( () => null );
+            // check off-day: adhoc -> full-date holiday -> recurring holiday -> weekly
+            let off = { off: false };
+            if ( adhocMap[ date ] ) { off = { off: true, type: 'ad_hoc', reason: adhocMap[ date ] }; }
+            else if ( holidaysByDate[ date ] ) { off = { off: true, type: 'holiday', name: holidaysByDate[ date ] }; }
+            else
+            {
+                const mmdd = moment( date, 'YYYY-MM-DD' ).format( 'MM-DD' );
+                if ( holidaysByMMDD[ mmdd ] ) { off = { off: true, type: 'holiday', name: holidaysByMMDD[ mmdd ] }; }
+                else
+                {
+                    const m = moment( date, 'YYYY-MM-DD' );
+                    const dow = m.day(); // 0=Sun
+                    if ( dow === 0 ) off = { off: true, type: 'weekly', mode: weeklyMode };
+                    else if ( dow === 6 )
+                    {
+                        const dom = m.date();
+                        const weekOfMonth = Math.floor( ( dom - 1 ) / 7 ) + 1;
+                        if ( weeklyMode === '2' ) off = { off: true, type: 'weekly', mode: weeklyMode };
+                        else if ( weeklyMode === '3' && ( weekOfMonth === 2 || weekOfMonth === 4 ) ) off = { off: true, type: 'weekly', mode: weeklyMode };
+                        else if ( weeklyMode === '4' && ( weekOfMonth % 2 === 1 ) ) off = { off: true, type: 'weekly', mode: weeklyMode };
+                    }
+                }
+            }
+
+            // find approved leave covering this date
+            const leave = leaves.find( L => L && L.start_date && L.end_date && ( L.start_date <= date && L.end_date >= date ) ) || null;
+
+            // attendance row
+            const att = attendanceMap[ date ] || null;
 
             let status = 'absent';
             let holiday_name = '';
             let adhoc_reason = '';
-
             if ( off && off.off )
             {
                 if ( off.type === 'ad_hoc' ) { status = 'ad_hoc'; adhoc_reason = off.reason || ''; }
@@ -651,30 +711,28 @@ app.get( '/visual/data', requireLogin, async ( req, res ) =>
                 else if ( off.type === 'weekly' ) { status = 'weekly'; }
             }
 
-            if ( !off || !off.off )
+            if ( !off.off )
             {
                 if ( leave ) { status = 'leave'; }
-                if ( att && att.in_time ) { status = 'present'; }
+                else if ( att && att.in_time ) { status = 'present'; }
             }
 
-            // Prepare safe attributes
-            const attr = ( k, v ) => `${ k }="${ ( v || '' ).toString().replace( /"/g, '&quot;' ) }"`;
-            // canonicalize status token: lowercase, remove spaces/underscores/hyphens -> e.g. 'ad_hoc' -> 'adhoc'
-            const token = ( ( status || '' ).toString() ).toLowerCase().replace( /[_\s-]+/g, '' ).replace( /[^a-z0-9]/g, '' );
-            const statusClass = 'status-' + ( token || 'unknown' );
-            const cls = `day ${ statusClass }`;
-            const displaySummary = ( att && att.in_time ) ? `Present` : '';
-
-            html += `<div class="${ cls }" ${ attr( 'data-date', date ) } ${ attr( 'data-status', status ) } ${ attr( 'data-in', att && att.in_time ? att.in_time : '' ) } ${ attr( 'data-out', att && att.out_time ? att.out_time : '' ) } ${ attr( 'data-holiday', holiday_name ) } ${ attr( 'data-adhoc', adhoc_reason ) } ${ attr( 'data-leave', leave && leave.reason ? leave.reason : '' ) }>`;
-            html += `<div class="date">${ d }</div><div style="padding-top:18px">${ ( holiday_name ? 'Holiday' : ( adhoc_reason ? 'Ad-hoc Off' : ( status === 'present' ? 'Present' : '' ) ) ) }</div>`;
-            html += `</div>`;
+            days.push( {
+                date,
+                status,
+                in_time: att && att.in_time ? att.in_time : null,
+                out_time: att && att.out_time ? att.out_time : null,
+                holiday_name: holiday_name || null,
+                adhoc_reason: adhoc_reason || null,
+                leave: leave ? { leave_id: leave.leave_id, status: leave.status, reason: leave.reason } : null
+            } );
         }
 
-        return res.send( html );
+        return res.json( { year, month, days } );
     } catch ( e )
     {
-        console.error( 'Error building visual data:', e );
-        return res.status( 500 ).send( 'Server error' );
+        console.error( 'Error building visual data JSON:', e );
+        return res.status( 500 ).json( { error: 'Server error' } );
     }
 } );
 
@@ -921,7 +979,7 @@ app.post( '/leaves/apply', requireLogin, async ( req, res ) =>
             }
 
             // Check overlap with existing leaves (exclude withdrawn/taken-back requests)
-            db.get( `SELECT 1 FROM leaves WHERE username = ? AND taken_back = 0 AND NOT (end_date < ? OR start_date > ?) LIMIT 1`, [ username, start_date, end_date ], async ( ovErr, overlap ) =>
+            db.get( `SELECT 1 FROM leaves WHERE username = ? AND taken_back = 0 AND status IN ('pending','approved') AND NOT (end_date < ? OR start_date > ?) LIMIT 1`, [ username, start_date, end_date ], async ( ovErr, overlap ) =>
             {
                 if ( ovErr )
                 {
@@ -1087,7 +1145,8 @@ app.post( '/admin/settings/app', requireOwner, ( req, res ) =>
 {
     const { desktop_enabled, weekly_off_mode } = req.body || {};
     // validate weekly_off_mode
-    const allowed = [ '1', '2', '3', '4' ];
+    // Supported modes: 1 (Sundays), 2 (Sundays+Saturdays), 3 (Sundays + 2nd & 4th Saturdays)
+    const allowed = [ '1', '2', '3' ];
     const mode = ( '' + ( weekly_off_mode || '1' ) ).trim();
     if ( allowed.indexOf( mode ) === -1 ) return res.status( 400 ).json( { success: false, message: 'Invalid weekly off mode.' } );
 

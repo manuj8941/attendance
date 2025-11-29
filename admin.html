@@ -92,16 +92,17 @@
     <body>
         <div class="container">
             <h1>Admin Dashboard</h1>
-                <p>Welcome, <strong id="admin-name"></strong>! (<span id="admin-role"></span>) <span
-                    id="back-link-container"></span> | <a href="/visual">Visual Calendar</a> | <a href="/profile">Change Password</a> | <a
-                    href="/logout">Logout</a></p>
+            <p>Welcome, <strong id="admin-name"></strong>! (<span id="admin-role"></span>) <span
+                    id="back-link-container"></span> | <a href="/visual">Visual Calendar</a> | <a href="/profile">Change
+                    Password</a> | <a href="/logout">Logout</a></p>
 
             <!-- Owner settings accessible from App Settings -->
-            <div class="section" id="test-date-section" style="background:#fff6f6;border:1px solid #ffd6d6">
+            <div class="section" id="test-date-section"
+                style="display:none;background:#fff6f6;border:1px solid #ffd6d6">
                 <h2>Test Date Override (Owner)</h2>
                 <p class="small">Set a permanent test date that the app will treat as "today" for all users. Leave blank
                     to clear.</p>
-                <label for="test-date-input">Test Date (YYYY-MM-DD)</label>
+                <label for="test-date-input">Test Date</label>
                 <input type="date" id="test-date-input">
                 <button id="set-test-date">Set Test Date</button>
                 <button id="clear-test-date">Clear Test Date</button>
@@ -222,6 +223,15 @@
                 {
                     const container = document.getElementById( 'back-link-container' );
                     if ( container ) container.innerHTML = ' | <a href="/appsettings">App Settings</a>';
+                    // show owner-only test-date override section
+                    const tsec = document.getElementById( 'test-date-section' );
+                    if ( tsec ) tsec.style.display = '';
+                }
+                else
+                {
+                    // ensure non-owners (e.g. managers) do not see the test-date section
+                    const tsec = document.getElementById( 'test-date-section' );
+                    if ( tsec ) tsec.style.display = 'none';
                 }
 
                 // Profile link in header
@@ -310,33 +320,38 @@
                 } );
 
                 // --- Test Date Override UI ---
-                ( async function ()
+                ( function ()
                 {
                     try
                     {
-                        const meRes = await fetch( '/user/me' );
-                        const me = meRes.ok ? await meRes.json() : null;
-                        if ( !me || me.role !== 'owner' ) return; // only show to owner
+                        // Use the already-fetched `currentUser` to avoid an extra network request
+                        if ( !currentUser || currentUser.role !== 'owner' ) return; // only show to owner
 
                         const info = document.getElementById( 'current-test-date' );
                         const input = document.getElementById( 'test-date-input' );
                         const setBtn = document.getElementById( 'set-test-date' );
                         const clearBtn = document.getElementById( 'clear-test-date' );
 
-                        // fetch current value
-                        const curRes = await fetch( '/admin/settings/test-date' );
-                        if ( curRes.ok )
+                        // fetch current value (owner only)
+                        ( async function ()
                         {
-                            const body = await curRes.json();
-                            if ( body && body.test_date )
+                            try
                             {
-                                info.textContent = `Current override: ${ body.test_date }`;
-                                input.value = body.test_date;
-                            } else
-                            {
-                                info.textContent = 'No test date override is set.';
-                            }
-                        }
+                                const curRes = await fetch( '/admin/settings/test-date' );
+                                if ( curRes.ok )
+                                {
+                                    const body = await curRes.json();
+                                    if ( body && body.test_date )
+                                    {
+                                        info.textContent = `Current override: ${ body.test_date }`;
+                                        input.value = body.test_date;
+                                    } else
+                                    {
+                                        info.textContent = 'No test date override is set.';
+                                    }
+                                }
+                            } catch ( e ) { /* ignore */ }
+                        } )();
 
                         setBtn.addEventListener( 'click', async () =>
                         {

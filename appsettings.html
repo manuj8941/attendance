@@ -44,9 +44,8 @@
                 <h2>Weekly Off Schedule</h2>
                 <select id="weekly-off-mode">
                     <option value="1">All Sundays off (default)</option>
-                    <option value="2">All Sundays and Saturdays off</option>
-                    <option value="3">Sundays + 2nd & 4th Saturdays off</option>
-                    <option value="4">Sundays + alternate Saturdays (1st,3rd,5th)</option>
+                    <option value="2">All Sundays + All Saturdays off</option>
+                    <option value="3">All Sundays + 2nd & 4th Saturdays off</option>
                 </select>
                 <div class="small" style="margin-top:8px">Choose the schedule applied across the company.</div>
                 <div style="margin-top:8px"><button id="save-weekly">Save Weekly Off</button></div>
@@ -71,10 +70,10 @@
             <div class="section">
                 <h2>Yearly Celebrations (Holiday Calendar)</h2>
                 <form id="add-holiday-form">
-                    <label for="holiday-name">Name</label>
-                    <input type="text" id="holiday-name" name="name" required>
                     <label for="holiday-date">Date</label>
                     <input type="date" id="holiday-date" name="date" required>
+                    <label for="holiday-name">Holiday Name (e.g. Deepawali)</label>
+                    <input type="text" id="holiday-name" name="name" required>
                     <label style="display:inline-flex;align-items:center;gap:8px;margin-top:6px"><input type="checkbox"
                             id="holiday-recurring"> <span>Recurring (every year)</span></label>
                     <div style="margin-top:8px"><button type="submit">Add Holiday</button></div>
@@ -83,205 +82,205 @@
                 <div id="holiday-list">
                     <p>Loading holidays...</p>
                 </div>
-                <div class="small">Enter recurring holidays as month-day pairs (e.g., 08-15 for 15 Aug).</div>
+                <div class="small">Holidays can be one-time (specific date) or recurring (same day-month every year).
+                </div>
             </div>
-        </div>
 
-        <script>
-            async function fetchSettings ()
-            {
-                const res = await fetch( '/admin/settings/app' );
-                if ( !res.ok ) { showAppModal( 'Could not load app settings.', 'error' ); return null; }
-                return res.json();
-            }
-
-            function formatDatePretty ( iso )
-            {
-                if ( !iso ) return iso;
-                // Expect iso YYYY-MM-DD -> format to D-MMM-YY (e.g., 4-Dec-25)
-                const parts = iso.split( '-' );
-                if ( parts.length !== 3 ) return iso;
-                const y = parts[ 0 ];
-                const m = parseInt( parts[ 1 ], 10 );
-                const d = parseInt( parts[ 2 ], 10 );
-                const months = [ 'Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec' ];
-                return `${ d }-${ months[ m - 1 ] }-${ y.slice( 2 ) }`;
-            }
-
-            function formatMonthDayPretty ( mmdd )
-            {
-                if ( !mmdd ) return mmdd;
-                const parts = mmdd.split( '-' );
-                if ( parts.length !== 2 ) return mmdd;
-                const m = parseInt( parts[ 0 ], 10 );
-                const d = parseInt( parts[ 1 ], 10 );
-                const months = [ 'Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec' ];
-                return `${ d }-${ months[ m - 1 ] }`;
-            }
-
-            window.addEventListener( 'load', async () =>
-            {
-                const s = await fetchSettings();
-                if ( !s ) return;
-                document.getElementById( 'desktop-enabled' ).checked = !!s.desktop_enabled;
-                document.getElementById( 'weekly-off-mode' ).value = s.weekly_off_mode || '1';
-
-                // Immediate save when desktop access checkbox is toggled
-                const desktopCheckbox = document.getElementById( 'desktop-enabled' );
-                desktopCheckbox.addEventListener( 'change', async () =>
+            <script>
+                async function fetchSettings ()
                 {
-                    const enabled = desktopCheckbox.checked ? '1' : '0';
-                    try
+                    const res = await fetch( '/admin/settings/app' );
+                    if ( !res.ok ) { showAppModal( 'Could not load app settings.', 'error' ); return null; }
+                    return res.json();
+                }
+
+                function formatDatePretty ( iso )
+                {
+                    if ( !iso ) return iso;
+                    // Expect iso YYYY-MM-DD -> format to D-MMM-YY (e.g., 4-Dec-25)
+                    const parts = iso.split( '-' );
+                    if ( parts.length !== 3 ) return iso;
+                    const y = parts[ 0 ];
+                    const m = parseInt( parts[ 1 ], 10 );
+                    const d = parseInt( parts[ 2 ], 10 );
+                    const months = [ 'Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec' ];
+                    return `${ d }-${ months[ m - 1 ] }-${ y.slice( 2 ) }`;
+                }
+
+                function formatMonthDayPretty ( mmdd )
+                {
+                    if ( !mmdd ) return mmdd;
+                    const parts = mmdd.split( '-' );
+                    if ( parts.length !== 2 ) return mmdd;
+                    const m = parseInt( parts[ 0 ], 10 );
+                    const d = parseInt( parts[ 1 ], 10 );
+                    const months = [ 'Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec' ];
+                    return `${ d }-${ months[ m - 1 ] }`;
+                }
+
+                window.addEventListener( 'load', async () =>
+                {
+                    const s = await fetchSettings();
+                    if ( !s ) return;
+                    document.getElementById( 'desktop-enabled' ).checked = !!s.desktop_enabled;
+                    document.getElementById( 'weekly-off-mode' ).value = s.weekly_off_mode || '1';
+
+                    // Immediate save when desktop access checkbox is toggled
+                    const desktopCheckbox = document.getElementById( 'desktop-enabled' );
+                    desktopCheckbox.addEventListener( 'change', async () =>
                     {
-                        const res = await fetch( '/admin/settings/app', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify( { desktop_enabled: enabled, weekly_off_mode: document.getElementById( 'weekly-off-mode' ).value || '1' } ) } );
-                        const body = await res.json();
-                        if ( res.ok && body.success )
+                        const enabled = desktopCheckbox.checked ? '1' : '0';
+                        try
                         {
-                            showAppModal( desktopCheckbox.checked ? 'Desktop access enabled.' : 'Desktop access disabled.', 'success' );
-                        } else
+                            const res = await fetch( '/admin/settings/app', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify( { desktop_enabled: enabled, weekly_off_mode: document.getElementById( 'weekly-off-mode' ).value || '1' } ) } );
+                            const body = await res.json();
+                            if ( res.ok && body.success )
+                            {
+                                showAppModal( desktopCheckbox.checked ? 'Desktop access enabled.' : 'Desktop access disabled.', 'success' );
+                            } else
+                            {
+                                showAppModal( body.message || 'Could not update desktop access setting.', 'error' );
+                                desktopCheckbox.checked = !desktopCheckbox.checked; // revert
+                            }
+                        } catch ( e )
                         {
-                            showAppModal( body.message || 'Could not update desktop access setting.', 'error' );
+                            console.error( e );
+                            showAppModal( 'Failed to update desktop access. Please try again.', 'error' );
                             desktopCheckbox.checked = !desktopCheckbox.checked; // revert
                         }
-                    } catch ( e )
+                    } );
+
+                    // Ad-hoc list
+                    const adhocList = document.getElementById( 'adhoc-list' );
+                    if ( s.ad_hoc_offs && s.ad_hoc_offs.length )
                     {
-                        console.error( e );
-                        showAppModal( 'Failed to update desktop access. Please try again.', 'error' );
-                        desktopCheckbox.checked = !desktopCheckbox.checked; // revert
+                        adhocList.innerHTML = '';
+                        s.ad_hoc_offs.forEach( a =>
+                        {
+                            const row = document.createElement( 'div' );
+                            row.className = 'card list-row';
+                            row.innerHTML = `<div>${ formatDatePretty( a.date ) } — ${ a.reason || '' }</div><div style="text-align:right"><button data-id="${ a.id }" class="remove-adhoc">Remove</button></div>`;
+                            adhocList.appendChild( row );
+                        } );
+                    } else
+                    {
+                        adhocList.innerHTML = '<p>No ad-hoc off days declared.</p>';
                     }
-                } );
 
-                // Ad-hoc list
-                const adhocList = document.getElementById( 'adhoc-list' );
-                if ( s.ad_hoc_offs && s.ad_hoc_offs.length )
-                {
-                    adhocList.innerHTML = '';
-                    s.ad_hoc_offs.forEach( a =>
+                    // Holidays
+                    const holList = document.getElementById( 'holiday-list' );
+                    if ( s.holidays && s.holidays.length )
                     {
-                        const row = document.createElement( 'div' );
-                        row.className = 'card list-row';
-                        row.innerHTML = `<div>${ formatDatePretty( a.date ) } — ${ a.reason || '' }</div><div style="text-align:right"><button data-id="${ a.id }" class="remove-adhoc">Remove</button></div>`;
-                        adhocList.appendChild( row );
+                        holList.innerHTML = '';
+                        s.holidays.forEach( h =>
+                        {
+                            const row = document.createElement( 'div' );
+                            row.className = 'card list-row';
+                            let display = '';
+                            if ( h.date ) display = `${ formatDatePretty( h.date ) }`;
+                            else if ( h.month_day ) display = `${ formatMonthDayPretty( h.month_day ) } (recurring)`;
+                            else display = 'Unknown date';
+                            row.innerHTML = `<div>${ display } — ${ h.name }</div><div style="text-align:right"><button data-id="${ h.id }" class="remove-holiday">Remove</button></div>`;
+                            holList.appendChild( row );
+                        } );
+                    } else
+                    {
+                        holList.innerHTML = '<p>No holidays configured.</p>';
+                    }
+
+                    // Wire up remove buttons
+                    document.querySelectorAll( '.remove-adhoc' ).forEach( btn =>
+                    {
+                        btn.addEventListener( 'click', async ( e ) =>
+                        {
+                            const id = btn.getAttribute( 'data-id' );
+                            const ok = await showAppConfirm( 'Remove this ad-hoc off day?' );
+                            if ( !ok ) return;
+                            try
+                            {
+                                const res = await fetch( '/admin/settings/app/ad-hoc/remove', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify( { id } ) } );
+                                const body = await res.json();
+                                if ( res.ok && body.success ) { showAppModal( 'Removed.', 'success' ); window.location.reload(); }
+                                else showAppModal( body.message || 'Failed to remove.', 'error' );
+                            } catch ( e ) { console.error( e ); showAppModal( 'Failed to remove.', 'error' ); }
+                        } );
                     } );
-                } else
-                {
-                    adhocList.innerHTML = '<p>No ad-hoc off days declared.</p>';
-                }
 
-                // Holidays
-                const holList = document.getElementById( 'holiday-list' );
-                if ( s.holidays && s.holidays.length )
-                {
-                    holList.innerHTML = '';
-                    s.holidays.forEach( h =>
+                    document.querySelectorAll( '.remove-holiday' ).forEach( btn =>
                     {
-                        const row = document.createElement( 'div' );
-                        row.className = 'card list-row';
-                        let display = '';
-                        if ( h.date ) display = `${ formatDatePretty( h.date ) }`;
-                        else if ( h.month_day ) display = `${ formatMonthDayPretty( h.month_day ) } (recurring)`;
-                        else display = 'Unknown date';
-                        row.innerHTML = `<div>${ display } — ${ h.name }</div><div style="text-align:right"><button data-id="${ h.id }" class="remove-holiday">Remove</button></div>`;
-                        holList.appendChild( row );
+                        btn.addEventListener( 'click', async ( e ) =>
+                        {
+                            const id = btn.getAttribute( 'data-id' );
+                            const ok = await showAppConfirm( 'Remove this holiday?' );
+                            if ( !ok ) return;
+                            try
+                            {
+                                const res = await fetch( '/admin/settings/app/holidays/remove', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify( { id } ) } );
+                                const body = await res.json();
+                                if ( res.ok && body.success ) { showAppModal( 'Removed.', 'success' ); window.location.reload(); }
+                                else showAppModal( body.message || 'Failed to remove.', 'error' );
+                            } catch ( e ) { console.error( e ); showAppModal( 'Failed to remove.', 'error' ); }
+                        } );
                     } );
-                } else
-                {
-                    holList.innerHTML = '<p>No holidays configured.</p>';
-                }
 
-                // Wire up remove buttons
-                document.querySelectorAll( '.remove-adhoc' ).forEach( btn =>
-                {
-                    btn.addEventListener( 'click', async ( e ) =>
+                    // Save weekly
+                    document.getElementById( 'save-weekly' ).addEventListener( 'click', async () =>
                     {
-                        const id = btn.getAttribute( 'data-id' );
-                        const ok = await showAppConfirm( 'Remove this ad-hoc off day?' );
-                        if ( !ok ) return;
+                        const mode = document.getElementById( 'weekly-off-mode' ).value;
+                        const enabled = document.getElementById( 'desktop-enabled' ).checked ? '1' : '0';
                         try
                         {
-                            const res = await fetch( '/admin/settings/app/ad-hoc/remove', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify( { id } ) } );
+                            const res = await fetch( '/admin/settings/app', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify( { weekly_off_mode: mode, desktop_enabled: enabled } ) } );
                             const body = await res.json();
-                            if ( res.ok && body.success ) { showAppModal( 'Removed.', 'success' ); window.location.reload(); }
-                            else showAppModal( body.message || 'Failed to remove.', 'error' );
-                        } catch ( e ) { console.error( e ); showAppModal( 'Failed to remove.', 'error' ); }
+                            if ( res.ok && body.success ) showAppModal( 'Settings saved.', 'success' ); else showAppModal( body.message || 'Could not save.', 'error' );
+                        } catch ( e ) { console.error( e ); showAppModal( 'Could not save settings.', 'error' ); }
                     } );
-                } );
 
-                document.querySelectorAll( '.remove-holiday' ).forEach( btn =>
-                {
-                    btn.addEventListener( 'click', async ( e ) =>
+                    // Add adhoc
+                    document.getElementById( 'add-adhoc-form' ).addEventListener( 'submit', async ( e ) =>
                     {
-                        const id = btn.getAttribute( 'data-id' );
-                        const ok = await showAppConfirm( 'Remove this holiday?' );
-                        if ( !ok ) return;
+                        e.preventDefault();
+                        const date = document.getElementById( 'adhoc-date' ).value;
+                        const reason = document.getElementById( 'adhoc-reason' ).value;
                         try
                         {
-                            const res = await fetch( '/admin/settings/app/holidays/remove', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify( { id } ) } );
+                            const res = await fetch( '/admin/settings/app/ad-hoc/add', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify( { date, reason } ) } );
                             const body = await res.json();
-                            if ( res.ok && body.success ) { showAppModal( 'Removed.', 'success' ); window.location.reload(); }
-                            else showAppModal( body.message || 'Failed to remove.', 'error' );
-                        } catch ( e ) { console.error( e ); showAppModal( 'Failed to remove.', 'error' ); }
+                            if ( res.ok && body.success ) { showAppModal( 'Ad-hoc off added.', 'success' ); window.location.reload(); }
+                            else showAppModal( body.message || 'Could not add ad-hoc off.', 'error' );
+                        } catch ( e ) { console.error( e ); showAppModal( 'Could not add ad-hoc off.', 'error' ); }
                     } );
-                } );
 
-                // Save weekly
-                document.getElementById( 'save-weekly' ).addEventListener( 'click', async () =>
-                {
-                    const mode = document.getElementById( 'weekly-off-mode' ).value;
-                    const enabled = document.getElementById( 'desktop-enabled' ).checked ? '1' : '0';
-                    try
+                    // Add holiday
+                    document.getElementById( 'add-holiday-form' ).addEventListener( 'submit', async ( e ) =>
                     {
-                        const res = await fetch( '/admin/settings/app', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify( { weekly_off_mode: mode, desktop_enabled: enabled } ) } );
-                        const body = await res.json();
-                        if ( res.ok && body.success ) showAppModal( 'Settings saved.', 'success' ); else showAppModal( body.message || 'Could not save.', 'error' );
-                    } catch ( e ) { console.error( e ); showAppModal( 'Could not save settings.', 'error' ); }
-                } );
-
-                // Add adhoc
-                document.getElementById( 'add-adhoc-form' ).addEventListener( 'submit', async ( e ) =>
-                {
-                    e.preventDefault();
-                    const date = document.getElementById( 'adhoc-date' ).value;
-                    const reason = document.getElementById( 'adhoc-reason' ).value;
-                    try
-                    {
-                        const res = await fetch( '/admin/settings/app/ad-hoc/add', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify( { date, reason } ) } );
-                        const body = await res.json();
-                        if ( res.ok && body.success ) { showAppModal( 'Ad-hoc off added.', 'success' ); window.location.reload(); }
-                        else showAppModal( body.message || 'Could not add ad-hoc off.', 'error' );
-                    } catch ( e ) { console.error( e ); showAppModal( 'Could not add ad-hoc off.', 'error' ); }
-                } );
-
-                // Add holiday
-                document.getElementById( 'add-holiday-form' ).addEventListener( 'submit', async ( e ) =>
-                {
-                    e.preventDefault();
-                    const name = document.getElementById( 'holiday-name' ).value;
-                    const dateVal = document.getElementById( 'holiday-date' ).value;
-                    const recurring = document.getElementById( 'holiday-recurring' ).checked;
-                    try
-                    {
-                        let payload = { name };
-                        if ( recurring )
+                        e.preventDefault();
+                        const name = document.getElementById( 'holiday-name' ).value;
+                        const dateVal = document.getElementById( 'holiday-date' ).value;
+                        const recurring = document.getElementById( 'holiday-recurring' ).checked;
+                        try
                         {
-                            if ( !dateVal ) { showAppModal( 'Please select a date for the recurring holiday.', 'error' ); return; }
-                            const mm = dateVal.slice( 5, 7 );
-                            const dd = dateVal.slice( 8, 10 );
-                            payload.month_day = `${ mm }-${ dd }`;
-                        } else
-                        {
-                            if ( !dateVal ) { showAppModal( 'Please select a full date for the holiday.', 'error' ); return; }
-                            payload.date = dateVal;
-                        }
-                        const res = await fetch( '/admin/settings/app/holidays/add', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify( payload ) } );
-                        const body = await res.json();
-                        if ( res.ok && body.success ) { showAppModal( 'Holiday added.', 'success' ); window.location.reload(); }
-                        else showAppModal( body.message || 'Could not add holiday.', 'error' );
-                    } catch ( e ) { console.error( e ); showAppModal( 'Could not add holiday.', 'error' ); }
-                } );
+                            let payload = { name };
+                            if ( recurring )
+                            {
+                                if ( !dateVal ) { showAppModal( 'Please select a date for the recurring holiday.', 'error' ); return; }
+                                const mm = dateVal.slice( 5, 7 );
+                                const dd = dateVal.slice( 8, 10 );
+                                payload.month_day = `${ mm }-${ dd }`;
+                            } else
+                            {
+                                if ( !dateVal ) { showAppModal( 'Please select a full date for the holiday.', 'error' ); return; }
+                                payload.date = dateVal;
+                            }
+                            const res = await fetch( '/admin/settings/app/holidays/add', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify( payload ) } );
+                            const body = await res.json();
+                            if ( res.ok && body.success ) { showAppModal( 'Holiday added.', 'success' ); window.location.reload(); }
+                            else showAppModal( body.message || 'Could not add holiday.', 'error' );
+                        } catch ( e ) { console.error( e ); showAppModal( 'Could not add holiday.', 'error' ); }
+                    } );
 
-            } );
-        </script>
+                } );
+            </script>
     </body>
 
 </html>
