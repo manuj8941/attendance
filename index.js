@@ -993,6 +993,38 @@ app.post( '/leaves/apply', requireLogin, async ( req, res ) =>
                 return res.status( 400 ).json( { success: false, message: `You have attendance records on the following date(s): ${ dates }. You cannot apply leave for days you were present.` } );
             }
 
+            // Check whether any requested date is an off-day (ad-hoc, holiday, weekly)
+            const checkRangeForOffDates = async ( startD, endD ) =>
+            {
+                const found = [];
+                try
+                {
+                    let cursor = moment( startD, 'YYYY-MM-DD' );
+                    const last = moment( endD, 'YYYY-MM-DD' );
+                    while ( cursor.isSameOrBefore( last, 'day' ) )
+                    {
+                        const dt = cursor.format( 'YYYY-MM-DD' );
+                        // wrap callback-style helper
+                        // eslint-disable-next-line no-await-in-loop
+                        const info = await new Promise( ( resolve ) => checkIfDateIsOff( dt, ( err, res2 ) => resolve( ( err || !res2 ) ? { off: false } : res2 ) ) );
+                        if ( info && info.off ) found.push( { date: dt, info } );
+                        cursor.add( 1, 'day' );
+                    }
+                } catch ( e ) { /* ignore errors here */ }
+                return found;
+            };
+
+            const offDates = await checkRangeForOffDates( start_date, end_date );
+            if ( offDates && offDates.length > 0 )
+            {
+                const pretty = offDates.map( o =>
+                {
+                    const suffix = ( o.info && o.info.type === 'ad_hoc' ) ? ` (Ad-hoc: ${ ( o.info.reason || '' ) })` : ( o.info && o.info.type === 'holiday' ? ` (Holiday: ${ ( o.info.name || '' ) })` : ( o.info && o.info.type === 'weekly' ? ' (Weekly off)' : '' ) );
+                    return `${ formatDateForDisplay( o.date ) }${ suffix }`;
+                } ).join( ', ' );
+                return res.status( 400 ).json( { success: false, message: `Cannot apply for leave on off-day(s): ${ pretty }` } );
+            }
+
             // Check overlap with existing leaves (exclude withdrawn/taken-back requests)
             db.get( `SELECT 1 FROM leaves WHERE username = ? AND taken_back = 0 AND status IN ('pending','approved') AND NOT (end_date < ? OR start_date > ?) LIMIT 1`, [ username, start_date, end_date ], async ( ovErr, overlap ) =>
             {
