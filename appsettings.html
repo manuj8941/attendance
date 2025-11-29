@@ -55,7 +55,7 @@
             <div class="section">
                 <h2>Ad-hoc Off Days</h2>
                 <form id="add-adhoc-form">
-                    <label for="adhoc-date">Date (YYYY-MM-DD)</label>
+                    <label for="adhoc-date">Date</label>
                     <input type="date" id="adhoc-date" name="date" required>
                     <label for="adhoc-reason">Reason</label>
                     <input type="text" id="adhoc-reason" maxlength="250" required>
@@ -73,8 +73,10 @@
                 <form id="add-holiday-form">
                     <label for="holiday-name">Name</label>
                     <input type="text" id="holiday-name" name="name" required>
-                    <label for="holiday-monthday">Month and Day</label>
-                    <input type="text" id="holiday-monthday" name="month_day" placeholder="MM-DD" required>
+                    <label for="holiday-date">Date</label>
+                    <input type="date" id="holiday-date" name="date" required>
+                    <label style="display:inline-flex;align-items:center;gap:8px;margin-top:6px"><input type="checkbox"
+                            id="holiday-recurring"> <span>Recurring (every year)</span></label>
                     <div style="margin-top:8px"><button type="submit">Add Holiday</button></div>
                 </form>
                 <hr>
@@ -96,8 +98,25 @@
             function formatDatePretty ( iso )
             {
                 if ( !iso ) return iso;
-                const d = new Date( iso + 'T00:00:00' );
-                return `${ d.getFullYear() }-${ ( d.getMonth() + 1 ).toString().padStart( 2, '0' ) }-${ d.getDate().toString().padStart( 2, '0' ) }`;
+                // Expect iso YYYY-MM-DD -> format to D-MMM-YY (e.g., 4-Dec-25)
+                const parts = iso.split( '-' );
+                if ( parts.length !== 3 ) return iso;
+                const y = parts[ 0 ];
+                const m = parseInt( parts[ 1 ], 10 );
+                const d = parseInt( parts[ 2 ], 10 );
+                const months = [ 'Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec' ];
+                return `${ d }-${ months[ m - 1 ] }-${ y.slice( 2 ) }`;
+            }
+
+            function formatMonthDayPretty ( mmdd )
+            {
+                if ( !mmdd ) return mmdd;
+                const parts = mmdd.split( '-' );
+                if ( parts.length !== 2 ) return mmdd;
+                const m = parseInt( parts[ 0 ], 10 );
+                const d = parseInt( parts[ 1 ], 10 );
+                const months = [ 'Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec' ];
+                return `${ d }-${ months[ m - 1 ] }`;
             }
 
             window.addEventListener( 'load', async () =>
@@ -158,7 +177,11 @@
                     {
                         const row = document.createElement( 'div' );
                         row.className = 'card list-row';
-                        row.innerHTML = `<div>${ h.month_day } — ${ h.name }</div><div style="text-align:right"><button data-id="${ h.id }" class="remove-holiday">Remove</button></div>`;
+                        let display = '';
+                        if ( h.date ) display = `${ formatDatePretty( h.date ) }`;
+                        else if ( h.month_day ) display = `${ formatMonthDayPretty( h.month_day ) } (recurring)`;
+                        else display = 'Unknown date';
+                        row.innerHTML = `<div>${ display } — ${ h.name }</div><div style="text-align:right"><button data-id="${ h.id }" class="remove-holiday">Remove</button></div>`;
                         holList.appendChild( row );
                     } );
                 } else
@@ -172,7 +195,8 @@
                     btn.addEventListener( 'click', async ( e ) =>
                     {
                         const id = btn.getAttribute( 'data-id' );
-                        if ( !confirm( 'Remove this ad-hoc off day?' ) ) return;
+                        const ok = await showAppConfirm( 'Remove this ad-hoc off day?' );
+                        if ( !ok ) return;
                         try
                         {
                             const res = await fetch( '/admin/settings/app/ad-hoc/remove', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify( { id } ) } );
@@ -188,7 +212,8 @@
                     btn.addEventListener( 'click', async ( e ) =>
                     {
                         const id = btn.getAttribute( 'data-id' );
-                        if ( !confirm( 'Remove this holiday?' ) ) return;
+                        const ok = await showAppConfirm( 'Remove this holiday?' );
+                        if ( !ok ) return;
                         try
                         {
                             const res = await fetch( '/admin/settings/app/holidays/remove', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify( { id } ) } );
@@ -232,10 +257,23 @@
                 {
                     e.preventDefault();
                     const name = document.getElementById( 'holiday-name' ).value;
-                    const month_day = document.getElementById( 'holiday-monthday' ).value;
+                    const dateVal = document.getElementById( 'holiday-date' ).value;
+                    const recurring = document.getElementById( 'holiday-recurring' ).checked;
                     try
                     {
-                        const res = await fetch( '/admin/settings/app/holidays/add', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify( { name, month_day } ) } );
+                        let payload = { name };
+                        if ( recurring )
+                        {
+                            if ( !dateVal ) { showAppModal( 'Please select a date for the recurring holiday.', 'error' ); return; }
+                            const mm = dateVal.slice( 5, 7 );
+                            const dd = dateVal.slice( 8, 10 );
+                            payload.month_day = `${ mm }-${ dd }`;
+                        } else
+                        {
+                            if ( !dateVal ) { showAppModal( 'Please select a full date for the holiday.', 'error' ); return; }
+                            payload.date = dateVal;
+                        }
+                        const res = await fetch( '/admin/settings/app/holidays/add', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify( payload ) } );
                         const body = await res.json();
                         if ( res.ok && body.success ) { showAppModal( 'Holiday added.', 'success' ); window.location.reload(); }
                         else showAppModal( body.message || 'Could not add holiday.', 'error' );

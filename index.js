@@ -149,6 +149,8 @@ db.serialize( () =>
         name TEXT,
         month_day TEXT
     )` );
+    // add optional full-date column for one-off holidays (YYYY-MM-DD)
+    db.run( "ALTER TABLE holidays ADD COLUMN date TEXT", () => { } );
 
     // Weekly off scheduling (1 default -> All Sundays off). Stored in settings as 'weekly_off_mode'
     db.run( "INSERT OR IGNORE INTO settings (name, value) VALUES (?, ?)", [ 'weekly_off_mode', '1' ] );
@@ -368,37 +370,43 @@ function checkIfDateIsOff ( date, callback )
     {
         if ( err ) return callback( err );
         if ( adhoc ) return callback( null, { off: true, type: 'ad_hoc', reason: adhoc.reason, id: adhoc.id } );
-
-        // 2) Check holidays (month-day recurring)
-        db.get( 'SELECT id, name FROM holidays WHERE month_day = ?', [ mmdd ], ( err2, hol ) =>
+        // 2) Check holidays: first check one-off full-date holidays
+        db.get( 'SELECT id, name FROM holidays WHERE date = ?', [ date ], ( errDate, holDate ) =>
         {
-            if ( err2 ) return callback( err2 );
-            if ( hol ) return callback( null, { off: true, type: 'holiday', name: hol.name } );
+            if ( errDate ) return callback( errDate );
+            if ( holDate ) return callback( null, { off: true, type: 'holiday', name: holDate.name } );
 
-            // 3) Check weekly off mode
-            db.get( 'SELECT value FROM settings WHERE name = ?', [ 'weekly_off_mode' ], ( err3, row ) =>
+            // 3) Check recurring holidays (month-day)
+            db.get( 'SELECT id, name FROM holidays WHERE month_day = ?', [ mmdd ], ( err2, hol ) =>
             {
-                if ( err3 ) return callback( err3 );
-                const mode = row && row.value ? row.value : '1';
-                const dow = m.day(); // 0=Sunday,6=Saturday
+                if ( err2 ) return callback( err2 );
+                if ( hol ) return callback( null, { off: true, type: 'holiday', name: hol.name } );
 
-                // Mode mapping
-                // 1 -> All Sundays off
-                // 2 -> All Sundays and Saturdays off
-                // 3 -> All Sundays and (2nd & 4th Saturdays)
-                // 4 -> All Sundays and alternate Saturdays (1st,3rd,5th)
-                if ( dow === 0 ) return callback( null, { off: true, type: 'weekly', mode } );
-
-                if ( dow === 6 )
+                // 4) Check weekly off mode
+                db.get( 'SELECT value FROM settings WHERE name = ?', [ 'weekly_off_mode' ], ( err3, row ) =>
                 {
-                    const dom = m.date();
-                    const weekOfMonth = Math.floor( ( dom - 1 ) / 7 ) + 1; // 1-based
-                    if ( mode === '2' ) return callback( null, { off: true, type: 'weekly', mode } );
-                    if ( mode === '3' && ( weekOfMonth === 2 || weekOfMonth === 4 ) ) return callback( null, { off: true, type: 'weekly', mode } );
-                    if ( mode === '4' && ( weekOfMonth % 2 === 1 ) ) return callback( null, { off: true, type: 'weekly', mode } );
-                }
+                    if ( err3 ) return callback( err3 );
+                    const mode = row && row.value ? row.value : '1';
+                    const dow = m.day(); // 0=Sunday,6=Saturday
 
-                return callback( null, { off: false } );
+                    // Mode mapping
+                    // 1 -> All Sundays off
+                    // 2 -> All Sundays and Saturdays off
+                    // 3 -> All Sundays and (2nd & 4th Saturdays)
+                    // 4 -> All Sundays and alternate Saturdays (1st,3rd,5th)
+                    if ( dow === 0 ) return callback( null, { off: true, type: 'weekly', mode } );
+
+                    if ( dow === 6 )
+                    {
+                        const dom = m.date();
+                        const weekOfMonth = Math.floor( ( dom - 1 ) / 7 ) + 1; // 1-based
+                        if ( mode === '2' ) return callback( null, { off: true, type: 'weekly', mode } );
+                        if ( mode === '3' && ( weekOfMonth === 2 || weekOfMonth === 4 ) ) return callback( null, { off: true, type: 'weekly', mode } );
+                        if ( mode === '4' && ( weekOfMonth % 2 === 1 ) ) return callback( null, { off: true, type: 'weekly', mode } );
+                    }
+
+                    return callback( null, { off: false } );
+                } );
             } );
         } );
     } );
@@ -954,7 +962,7 @@ app.get( '/admin/settings/app', requireOwner, ( req, res ) =>
             db.all( 'SELECT id, date, reason, created_by, created_at FROM ad_hoc_offs ORDER BY date ASC', [], ( err3, adhocs ) =>
             {
                 if ( err3 ) return res.status( 500 ).json( { error: err3.message } );
-                db.all( 'SELECT id, name, month_day FROM holidays ORDER BY month_day ASC', [], ( err4, hols ) =>
+                db.all( 'SELECT id, name, month_day, date FROM holidays ORDER BY month_day ASC, date ASC', [], ( err4, hols ) =>
                 {
                     if ( err4 ) return res.status( 500 ).json( { error: err4.message } );
                     return res.json( { desktop_enabled, weekly_off_mode, ad_hoc_offs: adhocs || [], holidays: hols || [] } );
@@ -1034,10 +1042,30 @@ app.post( '/admin/settings/app/ad-hoc/remove', requireOwner, ( req, res ) =>
 // Add holiday (owner only). month_day format 'MM-DD'
 app.post( '/admin/settings/app/holidays/add', requireOwner, ( req, res ) =>
 {
-    const { name, month_day } = req.body || {};
-    if ( !name || !month_day ) return res.status( 400 ).json( { success: false, message: 'name and month_day are required.' } );
-    if ( !/^[0-1][0-9]-[0-3][0-9]$/.test( month_day ) ) return res.status( 400 ).json( { success: false, message: 'month_day must be MM-DD.' } );
-    db.run( 'INSERT INTO holidays (name, month_day) VALUES (?, ?)', [ name.toString().substring( 0, 100 ), month_day ], function ( err )
+    const { name, month_day, date } = req.body || {};
+    if ( !name ) return res.status( 400 ).json( { success: false, message: 'name is required.' } );
+
+    let insertMonthDay = null;
+    let insertDate = null;
+
+    if ( date )
+    {
+        // full date provided (YYYY-MM-DD)
+        if ( !moment( date, 'YYYY-MM-DD', true ).isValid() ) return res.status( 400 ).json( { success: false, message: 'date must be YYYY-MM-DD.' } );
+        insertDate = date;
+        // also populate month_day for convenience
+        const m = moment( date, 'YYYY-MM-DD' );
+        insertMonthDay = m.format( 'MM-DD' );
+    } else if ( month_day )
+    {
+        if ( !/^[0-1][0-9]-[0-3][0-9]$/.test( month_day ) ) return res.status( 400 ).json( { success: false, message: 'month_day must be MM-DD.' } );
+        insertMonthDay = month_day;
+    } else
+    {
+        return res.status( 400 ).json( { success: false, message: 'Provide either `date` (YYYY-MM-DD) or `month_day` (MM-DD).' } );
+    }
+
+    db.run( 'INSERT INTO holidays (name, month_day, date) VALUES (?, ?, ?)', [ name.toString().substring( 0, 100 ), insertMonthDay, insertDate ], function ( err )
     {
         if ( err ) return res.status( 500 ).json( { success: false, message: err.message } );
         return res.json( { success: true } );
