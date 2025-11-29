@@ -178,8 +178,23 @@ db.serialize( () =>
     // Load global test-date override into app local cache for fast access
     db.get( "SELECT value FROM settings WHERE name = ?", [ 'test_date_override' ], ( err, row ) =>
     {
-        app.locals.testDateOverride = ( row && row.value ) ? row.value : '';
-        console.log( 'Loaded test_date_override:', app.locals.testDateOverride || '(none)' );
+        const val = ( row && row.value ) ? row.value : '';
+        app.locals.testDateOverride = val;
+        if ( val )
+        {
+            try
+            {
+                const m = moment( val, 'YYYY-MM-DD', true );
+                const formatted = m.isValid() ? m.format( 'D-MMM-YY' ) : val;
+                console.log( 'Loaded test_date_override:', formatted );
+            } catch ( e )
+            {
+                console.log( 'Loaded test_date_override:', val );
+            }
+        } else
+        {
+            console.log( 'Loaded test_date_override: (none)' );
+        }
     } );
 } );
 
@@ -187,7 +202,7 @@ db.serialize( () =>
 function formatDateTimeForDisplay ( date, time )
 {
     if ( !date || !time ) return null;
-    return moment( `${ date } ${ time }`, 'YYYY-MM-DD HH:mm:ss' ).format( 'DD-MMMM-YYYY, h:mm A' );
+    return moment( `${ date } ${ time }`, 'YYYY-MM-DD HH:mm:ss' ).format( 'D-MMM-YY, h:mm A' );
 }
 
 function formatTimeForDisplay ( date, time )
@@ -791,7 +806,7 @@ app.post( '/mark-in', requireLogin, ( req, res ) =>
                 if ( acceptsJson || isXhr ) return res.status( 500 ).json( { success: false, message: 'Could not mark in. Please try again.' } );
                 return res.redirect( '/dashboard' );
             }
-            console.log( `${ user.name } marked in on ${ now.format( 'DD-MMMM-YYYY' ) } at ${ now.format( 'h:mm A' ) }` );
+            console.log( `${ user.name } marked in on ${ now.format( 'D-MMM-YY' ) } at ${ now.format( 'h:mm A' ) }` );
             const acceptsJson = req.headers && req.headers.accept && req.headers.accept.indexOf( 'application/json' ) !== -1;
             const isXhr = req.xhr || ( req.headers && req.headers[ 'x-requested-with' ] === 'XMLHttpRequest' );
             if ( acceptsJson || isXhr ) return res.json( { success: true, message: 'Marked in successfully.' } );
@@ -848,7 +863,7 @@ app.post( '/mark-out', requireLogin, ( req, res ) =>
                 if ( acceptsJson || isXhr ) return res.status( 500 ).json( { success: false, message: 'Could not mark out. Please try again.' } );
                 return res.redirect( '/dashboard' );
             }
-            console.log( `${ user.name } marked out on ${ now.format( 'DD-MMMM-YYYY' ) } at ${ now.format( 'h:mm A' ) }` );
+            console.log( `${ user.name } marked out on ${ now.format( 'D-MMM-YY' ) } at ${ now.format( 'h:mm A' ) }` );
             const acceptsJson = req.headers && req.headers.accept && req.headers.accept.indexOf( 'application/json' ) !== -1;
             const isXhr = req.xhr || ( req.headers && req.headers[ 'x-requested-with' ] === 'XMLHttpRequest' );
             if ( acceptsJson || isXhr ) return res.json( { success: true, message: 'Marked out successfully.' } );
@@ -974,7 +989,7 @@ app.post( '/leaves/apply', requireLogin, async ( req, res ) =>
             if ( attRows && attRows.length > 0 )
             {
                 // Format dates for a friendlier message (e.g. 24-November-2025)
-                const dates = attRows.map( r => moment( r.date, 'YYYY-MM-DD' ).format( 'DD-MMMM-YYYY' ) ).join( ', ' );
+                const dates = attRows.map( r => formatDateForDisplay( r.date ) ).join( ', ' );
                 return res.status( 400 ).json( { success: false, message: `You have attendance records on the following date(s): ${ dates }. You cannot apply leave for days you were present.` } );
             }
 
@@ -1018,7 +1033,7 @@ app.post( '/leaves/apply', requireLogin, async ( req, res ) =>
                         console.error( 'Error inserting leave', insErr );
                         return res.status( 500 ).json( { success: false, message: 'We could not submit your leave request. Please try again later.' } );
                     }
-                    console.log( `${ username } applied for leave from ${ moment( start_date, 'YYYY-MM-DD' ).format( 'DD-MMMM-YYYY' ) } to ${ moment( end_date, 'YYYY-MM-DD' ).format( 'DD-MMMM-YYYY' ) }` );
+                    console.log( `${ username } applied for leave from ${ formatDateForDisplay( start_date ) } to ${ formatDateForDisplay( end_date ) }` );
                     return res.status( 200 ).json( { success: true, message: 'Leave applied successfully.' } );
                 } );
             } );
@@ -1047,7 +1062,7 @@ app.post( '/leaves/takeback', requireLogin, ( req, res ) =>
         db.run( 'UPDATE leaves SET taken_back = 1, taken_back_at = ?, status = ? WHERE leave_id = ?', [ ts, 'withdrawn', leave_id ], function ( upErr )
         {
             if ( upErr ) return res.status( 500 ).json( { success: false, message: 'Could not take back leave request.' } );
-            console.log( `${ username } withdrew leave request ${ leave_id } at ${ moment( ts ).format( 'DD-MMMM-YYYY, h:mm:ss A' ) }` );
+            console.log( `${ username } withdrew leave request ${ leave_id } at ${ moment( ts ).format( 'D-MMM-YY, h:mm A' ) }` );
             return res.json( { success: true, message: 'Leave request taken back.' } );
         } );
     } );
@@ -1411,7 +1426,7 @@ app.post( '/admin/leaves/action', requireAdmin, ( req, res ) =>
         db.run( 'UPDATE leaves SET status = ?, approved_by = ? WHERE leave_id = ?', [ status, admin.name, leave_id ], function ( err )
         {
             if ( err ) return res.status( 500 ).send( 'We could not process this leave request. Please try again.' );
-            console.log( `${ admin.name } ${ status } leave for ${ leave.username } from dates ${ moment( leave.start_date, 'YYYY-MM-DD' ).format( 'DD-MMMM-YYYY' ) } to ${ moment( leave.end_date, 'YYYY-MM-DD' ).format( 'DD-MMMM-YYYY' ) }` );
+            console.log( `${ admin.name } ${ status } leave for ${ leave.username } from dates ${ formatDateForDisplay( leave.start_date ) } to ${ formatDateForDisplay( leave.end_date ) }` );
             res.sendStatus( 200 );
         } );
     } );

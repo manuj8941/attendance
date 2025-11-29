@@ -328,6 +328,18 @@
                         if ( !currentUser || currentUser.role !== 'owner' ) return; // only show to owner
 
                         const info = document.getElementById( 'current-test-date' );
+                        function formatDatePretty ( iso )
+                        {
+                            if ( !iso ) return iso;
+                            // Expect iso YYYY-MM-DD -> format to D-MMM-YY (e.g., 4-Dec-25)
+                            const parts = iso.split( '-' );
+                            if ( parts.length !== 3 ) return iso;
+                            const y = parts[ 0 ];
+                            const m = parseInt( parts[ 1 ], 10 );
+                            const d = parseInt( parts[ 2 ], 10 );
+                            const months = [ 'Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec' ];
+                            return `${ d }-${ months[ m - 1 ] }-${ y.slice( 2 ) }`;
+                        }
                         const input = document.getElementById( 'test-date-input' );
                         const setBtn = document.getElementById( 'set-test-date' );
                         const clearBtn = document.getElementById( 'clear-test-date' );
@@ -343,7 +355,7 @@
                                     const body = await curRes.json();
                                     if ( body && body.test_date )
                                     {
-                                        info.textContent = `Current override: ${ body.test_date }`;
+                                        info.textContent = `Current override: ${ formatDatePretty( body.test_date ) }`;
                                         input.value = body.test_date;
                                     } else
                                     {
@@ -362,7 +374,7 @@
                                 const body = await res.json();
                                 if ( res.ok && body.success )
                                 {
-                                    info.textContent = body.test_date ? `Current override: ${ body.test_date }` : 'No test date override is set.';
+                                    info.textContent = body.test_date ? `Current override: ${ formatDatePretty( body.test_date ) }` : 'No test date override is set.';
                                     showAppModal( 'Test date override saved.', 'success' );
                                 } else
                                 {
