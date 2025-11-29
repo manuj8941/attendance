@@ -592,6 +592,94 @@ app.get( '/appsettings', requireOwner, ( req, res ) =>
     return res.sendFile( path.join( __dirname, 'appsettings.html' ) );
 } );
 
+// Visual calendar page (personal + manager view)
+app.get( '/visual', requireLogin, ( req, res ) =>
+{
+    return res.sendFile( path.join( __dirname, 'visual.html' ) );
+} );
+
+// Visual calendar data (returns an HTML fragment, not JSON). Authorization rules:
+// - employees may request only their own calendar
+// - managers and owners may request any user's calendar
+app.get( '/visual/data', requireLogin, async ( req, res ) =>
+{
+    try
+    {
+        const username = ( req.query.username || ( req.session.user && req.session.user.name ) || '' ).toString();
+        const year = parseInt( req.query.year || ( new Date() ).getFullYear(), 10 );
+        const month = parseInt( req.query.month || ( new Date() ).getMonth() + 1, 10 );
+
+        if ( !username ) return res.status( 400 ).send( 'username required' );
+
+        const requester = req.session.user;
+        if ( requester.role === 'employee' && requester.name !== username ) return res.status( 403 ).send( 'Not authorized' );
+
+        const userRow = await new Promise( ( resolve ) => db.get( 'SELECT name FROM users WHERE name = ?', [ username ], ( err, row ) => resolve( row || null ) ) );
+        if ( !userRow ) return res.status( 404 ).send( 'User not found' );
+
+        const mfirst = moment( `${ year }-${ ( '' + month ).padStart( 2, '0' ) }-01`, 'YYYY-MM-DD' );
+        if ( !mfirst.isValid() ) return res.status( 400 ).send( 'Invalid year/month' );
+        const daysInMonth = mfirst.daysInMonth();
+        // start week on Monday: shift JS day (0=Sun) so Monday=0
+        const startDow = ( mfirst.day() + 6 ) % 7; // 0=Mon .. 6=Sun
+
+        const checkOff = ( date ) => new Promise( ( resolve, reject ) => checkIfDateIsOff( date, ( err, off ) => err ? reject( err ) : resolve( off ) ) );
+
+        // Build HTML fragment for the month grid. We'll emit the same .day tiles the client expects.
+        let html = '';
+
+        // leading blanks
+        for ( let i = 0; i < startDow; i++ ) html += `<div class="day"></div>`;
+
+        for ( let d = 1; d <= daysInMonth; d++ )
+        {
+            const date = `${ year }-${ ( '' + month ).padStart( 2, '0' ) }-${ ( '' + d ).padStart( 2, '0' ) }`;
+
+            // attendance row (table may not exist if owner)
+            const att = await new Promise( ( resolve ) => db.get( `SELECT * FROM attendance_${ username } WHERE date = ?`, [ date ], ( err, row ) => resolve( row || null ) ) ).catch( () => null );
+            const off = await checkOff( date );
+            const leave = await new Promise( ( resolve ) => db.get( `SELECT leave_id, status, reason FROM leaves WHERE username = ? AND status = 'approved' AND start_date <= ? AND end_date >= ? LIMIT 1`, [ username, date, date ], ( err, row ) => resolve( row || null ) ) ).catch( () => null );
+
+            let status = 'absent';
+            let holiday_name = '';
+            let adhoc_reason = '';
+
+            if ( off && off.off )
+            {
+                if ( off.type === 'ad_hoc' ) { status = 'ad_hoc'; adhoc_reason = off.reason || ''; }
+                else if ( off.type === 'holiday' ) { status = 'holiday'; holiday_name = off.name || ''; }
+                else if ( off.type === 'weekly' ) { status = 'weekly'; }
+            }
+
+            if ( !off || !off.off )
+            {
+                if ( leave ) { status = 'leave'; }
+                if ( att && att.in_time ) { status = 'present'; }
+            }
+
+            // Prepare safe attributes
+            const attr = ( k, v ) => `${ k }="${ ( v || '' ).toString().replace( /"/g, '&quot;' ) }"`;
+            // canonicalize status token: lowercase, remove spaces/underscores/hyphens -> e.g. 'ad_hoc' -> 'adhoc'
+            const token = ( ( status || '' ).toString() ).toLowerCase().replace( /[_\s-]+/g, '' ).replace( /[^a-z0-9]/g, '' );
+            const statusClass = 'status-' + ( token || 'unknown' );
+            const cls = `day ${ statusClass }`;
+            const displaySummary = ( att && att.in_time ) ? `Present` : '';
+
+            html += `<div class="${ cls }" ${ attr( 'data-date', date ) } ${ attr( 'data-status', status ) } ${ attr( 'data-in', att && att.in_time ? att.in_time : '' ) } ${ attr( 'data-out', att && att.out_time ? att.out_time : '' ) } ${ attr( 'data-holiday', holiday_name ) } ${ attr( 'data-adhoc', adhoc_reason ) } ${ attr( 'data-leave', leave && leave.reason ? leave.reason : '' ) }>`;
+            html += `<div class="date">${ d }</div><div style="padding-top:18px">${ ( holiday_name ? 'Holiday' : ( adhoc_reason ? 'Ad-hoc Off' : ( status === 'present' ? 'Present' : '' ) ) ) }</div>`;
+            html += `</div>`;
+        }
+
+        return res.send( html );
+    } catch ( e )
+    {
+        console.error( 'Error building visual data:', e );
+        return res.status( 500 ).send( 'Server error' );
+    }
+} );
+
+// (visual page route already registered above)
+
 app.get( '/attendance/status', requireLogin, ( req, res ) =>
 {
     const user = req.session.user;
