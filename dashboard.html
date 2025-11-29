@@ -115,7 +115,8 @@
                     <p>Location and camera access are required. Please enable permissions and refresh.</p>
                 </div>
                 <div id="day-complete-message" style="display: none;">
-                    <p>Your attendance for today is complete.</p>
+                    <p id="attendance-notice" aria-live="polite"
+                        style="margin:0;padding:0;font-weight:normal;color:#333;"></p>
                 </div>
                 <video id="video" width="400" height="300" autoplay style="display: none;"></video>
                 <canvas id="canvas" width="400" height="300" style="display: none;"></canvas>
@@ -347,22 +348,37 @@
                     document.getElementById( 'longitude' ).value = position.coords.longitude;
 
                     const statusResponse = await fetch( '/attendance/status' );
-                    const { status } = await statusResponse.json();
+                    const statusData = await statusResponse.json();
+                    const status = statusData && statusData.status ? statusData.status : null;
+                    const offMessage = statusData && statusData.message ? statusData.message : '';
+
+                    // Clear any previous notice
+                    const noticeEl = document.getElementById( 'attendance-notice' );
+                    if ( noticeEl ) noticeEl.textContent = '';
 
                     if ( status === 'not_marked_in' )
                     {
+                        dayCompleteMessage.style.display = 'none';
                         form.action = '/mark-in';
                         pendingAction = '/mark-in';
                         setOpenCaption();
                         form.style.display = 'block';
                     } else if ( status === 'marked_in' )
                     {
+                        dayCompleteMessage.style.display = 'none';
                         form.action = '/mark-out';
                         pendingAction = '/mark-out';
                         setOpenCaption();
                         form.style.display = 'block';
                     } else if ( status === 'marked_out' )
                     {
+                        // Completed for today
+                        if ( noticeEl ) noticeEl.textContent = 'Your attendance for today is complete.';
+                        dayCompleteMessage.style.display = 'block';
+                    } else if ( status === 'off' )
+                    {
+                        // Server-provided friendly off-day message
+                        if ( noticeEl ) noticeEl.textContent = offMessage || 'Attendance is not required today.';
                         dayCompleteMessage.style.display = 'block';
                     }
                 } catch ( error )
