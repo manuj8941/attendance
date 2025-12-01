@@ -266,24 +266,51 @@
                             resetIdleTimer();
                             return;
                         }
+
+                        // Show loading feedback
+                        actionButton.disabled = true;
+                        actionButton.textContent = 'Opening camera...';
+
                         video.style.display = 'block';
-                        const s = await navigator.mediaDevices.getUserMedia( { video: { facingMode: 'user' } } );
+                        const s = await navigator.mediaDevices.getUserMedia( {
+                            video: {
+                                facingMode: 'user',
+                                width: { ideal: 640 },
+                                height: { ideal: 480 }
+                            }
+                        } );
                         stream = s;
                         video.srcObject = stream;
-                        // Wait for first usable frame (playing or loadeddata) with a short timeout
+
+                        // Wait for first usable frame with longer timeout for mobile
                         await new Promise( resolve =>
                         {
                             let settled = false;
                             function done () { if ( settled ) return; settled = true; cleanup(); resolve(); }
-                            function cleanup () { video.removeEventListener( 'playing', done ); video.removeEventListener( 'loadeddata', done ); clearTimeout( timer ); }
+                            function cleanup ()
+                            {
+                                video.removeEventListener( 'playing', done );
+                                video.removeEventListener( 'loadeddata', done );
+                                video.removeEventListener( 'canplay', done );
+                                clearTimeout( timer );
+                            }
                             video.addEventListener( 'playing', done );
                             video.addEventListener( 'loadeddata', done );
-                            const timer = setTimeout( () => { done(); }, 1500 );
+                            video.addEventListener( 'canplay', done );
+                            const timer = setTimeout( () => { done(); }, 3000 ); // Increased timeout for mobile
                         } );
+
+                        // Re-enable button and update text
+                        actionButton.disabled = false;
+                        if ( pendingAction === '/mark-in' ) actionButton.textContent = 'Mark In';
+                        else if ( pendingAction === '/mark-out' ) actionButton.textContent = 'Mark Out';
+
                         resetIdleTimer();
                     } catch ( e )
                     {
                         console.error( 'Could not open camera', e );
+                        actionButton.disabled = false;
+                        setOpenCaption();
                         showModal( 'Unable to access camera. Please check permissions and try again.', 'error' );
                     }
                 }
@@ -341,94 +368,155 @@
                 // No file-upload fallback: captures must be from live camera.
 
                 // Don't auto-acquire camera on load — only get geolocation and status
+                // Fetch status FIRST to determine if we need geolocation
+
+                let hasGeoPermission = false;
+                let position = null;
+                let geoErrorCode = null;
+                let status = null;
+                let offMessage = '';
+
+                // Fetch status first (fast)
                 try
                 {
-                    const position = await new Promise( ( resolve, reject ) => navigator.geolocation.getCurrentPosition( resolve, reject ) );
-                    document.getElementById( 'latitude' ).value = position.coords.latitude;
-                    document.getElementById( 'longitude' ).value = position.coords.longitude;
-
-                    let status = null;
-                    let offMessage = '';
-                    try
+                    const statusResponse = await fetch( '/attendance/status' );
+                    if ( statusResponse && statusResponse.ok )
                     {
-                        const statusResponse = await fetch( '/attendance/status' );
-                        if ( !statusResponse.ok ) throw new Error( 'Could not fetch attendance status' );
                         const statusData = await statusResponse.json();
                         status = statusData && statusData.status ? statusData.status : null;
                         offMessage = statusData && statusData.message ? statusData.message : '';
-                    } catch ( fetchErr )
-                    {
-                        console.error( 'Could not fetch /attendance/status:', fetchErr );
-                        // As a fallback, allow the user to attempt marking in — show the form and default to mark-in
-                        form.action = '/mark-in';
-                        pendingAction = '/mark-in';
-                        setOpenCaption();
-                        form.style.display = 'block';
-                        actionButton.disabled = false;
-                        video.style.display = 'none';
-                        canvas.style.display = 'none';
-                        // continue — do not throw so finally hides loading
                     }
-
-                    // Clear any previous notice
-                    const noticeEl = document.getElementById( 'attendance-notice' );
-                    if ( noticeEl ) noticeEl.textContent = '';
-
-                    if ( status === 'not_marked_in' )
-                    {
-                        dayCompleteMessage.style.display = 'none';
-                        form.action = '/mark-in';
-                        pendingAction = '/mark-in';
-                        setOpenCaption();
-                        form.style.display = 'block';
-                        video.style.display = 'none';
-                        canvas.style.display = 'none';
-                        actionButton.disabled = false;
-                    } else if ( status === 'marked_in' )
-                    {
-                        dayCompleteMessage.style.display = 'none';
-                        form.action = '/mark-out';
-                        pendingAction = '/mark-out';
-                        setOpenCaption();
-                        form.style.display = 'block';
-                        video.style.display = 'none';
-                        canvas.style.display = 'none';
-                        actionButton.disabled = false;
-                    } else if ( status === 'marked_out' )
-                    {
-                        // Completed for today — hide form and stop camera
-                        if ( noticeEl ) noticeEl.textContent = 'Your attendance for today is complete.';
-                        dayCompleteMessage.style.display = 'block';
-                        // ensure interactive elements are hidden/disabled
-                        form.style.display = 'none';
-                        video.style.display = 'none';
-                        canvas.style.display = 'none';
-                        try { stopStream(); } catch ( e ) { /* ignore */ }
-                        pendingAction = null;
-                        setOpenCaption();
-                        actionButton.disabled = true;
-                    } else if ( status === 'off' )
-                    {
-                        // Server-provided friendly off-day message
-                        if ( noticeEl ) noticeEl.textContent = offMessage || 'Attendance is not required today.';
-                        dayCompleteMessage.style.display = 'block';
-                        form.style.display = 'none';
-                        video.style.display = 'none';
-                        canvas.style.display = 'none';
-                        try { stopStream(); } catch ( e ) { /* ignore */ }
-                        pendingAction = null;
-                        setOpenCaption();
-                        actionButton.disabled = true;
-                    }
-                } catch ( error )
+                } catch ( fetchErr )
                 {
-                    console.error( error );
-                    permissionDeniedMessage.style.display = 'block';
-                } finally
-                {
-                    loadingMessage.style.display = 'none';
+                    console.error( 'Error fetching status:', fetchErr );
                 }
 
+                // Clear any previous notice
+                const noticeEl = document.getElementById( 'attendance-notice' );
+                if ( noticeEl ) noticeEl.textContent = '';
+
+                // If status is 'marked_out' or 'off', we don't need geolocation - show UI immediately
+                if ( status === 'marked_out' )
+                {
+                    loadingMessage.style.display = 'none';
+                    if ( noticeEl ) noticeEl.textContent = 'Your attendance for today is complete.';
+                    dayCompleteMessage.style.display = 'block';
+                    form.style.display = 'none';
+                    video.style.display = 'none';
+                    canvas.style.display = 'none';
+                    try { stopStream(); } catch ( e ) { /* ignore */ }
+                    pendingAction = null;
+                    setOpenCaption();
+                    actionButton.disabled = true;
+                    return; // Exit early - no geolocation needed
+                }
+
+                if ( status === 'off' )
+                {
+                    loadingMessage.style.display = 'none';
+                    if ( noticeEl ) noticeEl.textContent = offMessage || 'Attendance is not required today.';
+                    dayCompleteMessage.style.display = 'block';
+                    form.style.display = 'none';
+                    video.style.display = 'none';
+                    canvas.style.display = 'none';
+                    try { stopStream(); } catch ( e ) { /* ignore */ }
+                    pendingAction = null;
+                    setOpenCaption();
+                    actionButton.disabled = true;
+                    return; // Exit early - no geolocation needed
+                }
+
+                // Only fetch geolocation if we need it (for marking in/out)
+                try
+                {
+                    position = await new Promise( ( resolve, reject ) =>
+                    {
+                        navigator.geolocation.getCurrentPosition( resolve, reject, {
+                            timeout: 15000,
+                            maximumAge: 300000, // Can use cached location up to 5 minutes
+                            enableHighAccuracy: false // Faster on mobile
+                        } );
+                    } );
+                    hasGeoPermission = true;
+                    document.getElementById( 'latitude' ).value = position.coords.latitude;
+                    document.getElementById( 'longitude' ).value = position.coords.longitude;
+                } catch ( geoError )
+                {
+                    console.error( 'Geolocation error:', geoError );
+                    geoErrorCode = geoError.code; // 1=PERMISSION_DENIED, 2=POSITION_UNAVAILABLE, 3=TIMEOUT
+                    hasGeoPermission = ( geoError.code !== 1 ); // Code 1 is PERMISSION_DENIED
+                }
+
+                // Hide loading message first
+                loadingMessage.style.display = 'none';
+
+                // Only show permission error if it's actually a permission denied error (code 1)
+                if ( geoErrorCode === 1 && status && ( status === 'not_marked_in' || status === 'marked_in' ) )
+                {
+                    permissionDeniedMessage.style.display = 'block';
+                    return;
+                }
+
+                // If geolocation failed but not due to permission (timeout/unavailable), 
+                // show a helpful message but still allow proceeding
+                if ( !position && status && ( status === 'not_marked_in' || status === 'marked_in' ) )
+                {
+                    if ( geoErrorCode === 3 ) // TIMEOUT
+                    {
+                        showModal( 'Location is taking longer than usual. You may proceed, but make sure you are at the correct location.', 'error' );
+                    } else if ( geoErrorCode === 2 ) // POSITION_UNAVAILABLE
+                    {
+                        showModal( 'Unable to get precise location. Make sure GPS is enabled and you have a clear view of the sky.', 'error' );
+                    }
+                    // Still allow user to proceed even without exact location
+                    // Set dummy coordinates that server can detect
+                    if ( !document.getElementById( 'latitude' ).value )
+                    {
+                        document.getElementById( 'latitude' ).value = '0';
+                        document.getElementById( 'longitude' ).value = '0';
+                    }
+                }
+
+                // Handle different attendance states
+                if ( !status )
+                {
+                    // Fallback: allow user to attempt marking in
+                    if ( geoErrorCode !== 1 ) // Not a permission error
+                    {
+                        form.action = '/mark-in';
+                        pendingAction = '/mark-in';
+                        setOpenCaption();
+                        form.style.display = 'block';
+                        actionButton.disabled = false;
+                        video.style.display = 'none';
+                        canvas.style.display = 'none';
+                    } else
+                    {
+                        permissionDeniedMessage.style.display = 'block';
+                    }
+                }
+                else if ( status === 'not_marked_in' )
+                {
+                    dayCompleteMessage.style.display = 'none';
+                    form.action = '/mark-in';
+                    pendingAction = '/mark-in';
+                    setOpenCaption();
+                    form.style.display = 'block';
+                    video.style.display = 'none';
+                    canvas.style.display = 'none';
+                    actionButton.disabled = false;
+                } else if ( status === 'marked_in' )
+                {
+                    dayCompleteMessage.style.display = 'none';
+                    form.action = '/mark-out';
+                    pendingAction = '/mark-out';
+                    setOpenCaption();
+                    form.style.display = 'block';
+                    video.style.display = 'none';
+                    canvas.style.display = 'none';
+                    actionButton.disabled = false;
+                }
+                // marked_out and off cases are handled above with early return
                 // Single-button behavior: click opens camera (if closed) or captures & submits (if open)
                 actionButton.addEventListener( 'click', async ( ev ) =>
                 {
@@ -439,9 +527,7 @@
                         if ( !stream )
                         {
                             await openCamera();
-                            // update caption to indicate capture action
-                            if ( pendingAction === '/mark-in' ) actionButton.textContent = 'Mark In';
-                            else if ( pendingAction === '/mark-out' ) actionButton.textContent = 'Mark Out';
+                            // Caption is already updated inside openCamera
                             return;
                         }
 
@@ -451,9 +537,17 @@
                             showModal( 'Camera is warming up. Please wait a moment and try again.', 'error' );
                             return;
                         }
+
+                        // Disable button during capture/submit
+                        actionButton.disabled = true;
+                        actionButton.textContent = 'Submitting...';
+
                         const dataUrl = captureFromVideo();
                         if ( !validateDataUrl( dataUrl ) )
                         {
+                            actionButton.disabled = false;
+                            if ( pendingAction === '/mark-in' ) actionButton.textContent = 'Mark In';
+                            else if ( pendingAction === '/mark-out' ) actionButton.textContent = 'Mark Out';
                             showModal( 'Captured image looks empty or too small. Please try again.', 'error' );
                             return;
                         }
@@ -461,6 +555,7 @@
                         document.getElementById( 'selfie' ).value = dataUrl;
                         // stop camera after successful capture
                         stopStream();
+
                         // Submit via AJAX so we can show a modal confirmation instead of full redirect
                         try
                         {
@@ -478,24 +573,51 @@
                                 body: JSON.stringify( payload )
                             } );
                             const result = await resp.json();
+
+                            actionButton.disabled = false;
+
                             if ( resp.ok && result.success )
                             {
-                                showModal( result.message || 'Action completed.', 'success' );
-                                // Refresh relevant parts of the UI
-                                await loadAttendanceHistory();
-                                await loadAttendanceMarker( currentUser );
+                                showModal( result.message || 'Action completed.', 'success', async () =>
+                                {
+                                    // Refresh only attendance history, not entire marker
+                                    await loadAttendanceHistory();
+                                    // Update UI state based on what was just done
+                                    if ( pendingAction === '/mark-in' )
+                                    {
+                                        // Just marked in, now show mark out option
+                                        form.action = '/mark-out';
+                                        pendingAction = '/mark-out';
+                                        setOpenCaption();
+                                        actionButton.disabled = false;
+                                    } else if ( pendingAction === '/mark-out' )
+                                    {
+                                        // Just marked out, show completion message
+                                        const noticeEl = document.getElementById( 'attendance-notice' );
+                                        if ( noticeEl ) noticeEl.textContent = 'Your attendance for today is complete.';
+                                        dayCompleteMessage.style.display = 'block';
+                                        form.style.display = 'none';
+                                        pendingAction = null;
+                                        actionButton.disabled = true;
+                                    }
+                                } );
                             } else
                             {
+                                setOpenCaption();
                                 showModal( result.message || 'Could not complete action.', 'error' );
                             }
                         } catch ( ex )
                         {
                             console.error( ex );
+                            actionButton.disabled = false;
+                            setOpenCaption();
                             showModal( 'An unexpected error occurred while submitting attendance.', 'error' );
                         }
                     } catch ( err )
                     {
                         console.error( 'Error during action button flow', err );
+                        actionButton.disabled = false;
+                        setOpenCaption();
                         showModal( 'Unable to capture selfie. Please try again.', 'error' );
                     }
                 } );
