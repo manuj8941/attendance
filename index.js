@@ -85,6 +85,17 @@ db.serialize( () =>
     } );
     stmtUsers.finalize();
 
+    // Ensure optional column exists on `users` for single-session mapping (current_session_id)
+    db.all( "PRAGMA table_info(users)", [], ( prErrU, ucols ) =>
+    {
+        if ( prErrU ) return; // cannot verify, skip safely
+        try
+        {
+            const namesU = ( ucols || [] ).map( c => c.name );
+            if ( namesU.indexOf( 'current_session_id' ) === -1 ) db.run( "ALTER TABLE users ADD COLUMN current_session_id TEXT DEFAULT ''" );
+        } catch ( e ) { /* ignore migration errors */ }
+    } );
+
     // Attendance tables
     users.forEach( user =>
     {
@@ -343,12 +354,35 @@ async function calculateAndUpdateLeaveBalance ( username )
 // --- AUTHENTICATION & MIDDLEWARE ---
 function requireLogin ( req, res, next )
 {
-    if ( req.session.user )
+    if ( !req.session || !req.session.user )
     {
-        next();
-    } else
+        return res.redirect( '/' );
+    }
+
+    // Verify this session matches the single-session id stored on the users row.
+    try
     {
-        res.redirect( '/' );
+        db.get( 'SELECT current_session_id FROM users WHERE name = ?', [ req.session.user.name ], ( err, row ) =>
+        {
+            if ( err )
+            {
+                console.error( 'Error verifying session id for user', req.session.user && req.session.user.name, err && err.message );
+                // On DB error, allow the session (fail-open) so users are not locked out due to transient DB issues.
+                return next();
+            }
+            const stored = ( row && row.current_session_id ) ? row.current_session_id : '';
+            if ( stored && stored !== req.sessionID )
+            {
+                // Another session has replaced this one; destroy current session and redirect to login
+                return req.session.destroy( () => res.redirect( '/?session_invalidated=1' ) );
+            }
+            return next();
+        } );
+    } catch ( e )
+    {
+        // If something unexpected happens, allow the request to proceed rather than blocking traffic.
+        console.error( 'Unexpected error in requireLogin session check', e );
+        return next();
     }
 }
 
@@ -533,13 +567,64 @@ app.post( '/login', ( req, res ) =>
 
                 if ( bcrypt.compareSync( ( password || '' ).toString(), user.password ) )
                 {
-                    // successful login -- clear any previous login error
-                    req.session.user = { name: user.name, role: user.role };
-                    // record session creation time for potential session invalidation checks
-                    req.session.createdAt = Date.now();
-                    if ( req.session.loginError ) delete req.session.loginError;
-                    // Redirect all users to unified dashboard; the UI served at /dashboard
-                    return res.redirect( '/dashboard' );
+                    // successful login -- implement single-session mapping (Invalidate-old)
+                    const prevSid = user.current_session_id || '';
+                    const newSid = req.sessionID;
+
+                    // Update DB to set the current_session_id to this session.
+                    const finalizeLogin = () =>
+                    {
+                        req.session.user = { name: user.name, role: user.role };
+                        req.session.createdAt = Date.now();
+                        if ( req.session.loginError ) delete req.session.loginError;
+                        return res.redirect( '/dashboard' );
+                    };
+
+                    // If there is a previous session id and it's different, attempt to destroy it.
+                    if ( prevSid && prevSid !== newSid )
+                    {
+                        try
+                        {
+                            // best-effort destroy via the session store
+                            if ( req.sessionStore && typeof req.sessionStore.destroy === 'function' )
+                            {
+                                req.sessionStore.destroy( prevSid, ( _destroyErr ) =>
+                                {
+                                    // ignore destroy errors and proceed to update DB
+                                    db.run( 'UPDATE users SET current_session_id = ? WHERE name = ?', [ newSid, user.name ], ( upErr ) =>
+                                    {
+                                        if ( upErr ) console.error( 'Failed to update current_session_id after login', upErr && upErr.message );
+                                        return finalizeLogin();
+                                    } );
+                                } );
+                            } else
+                            {
+                                // no store access; still update DB and proceed
+                                db.run( 'UPDATE users SET current_session_id = ? WHERE name = ?', [ newSid, user.name ], ( upErr ) =>
+                                {
+                                    if ( upErr ) console.error( 'Failed to update current_session_id after login', upErr && upErr.message );
+                                    return finalizeLogin();
+                                } );
+                            }
+                        } catch ( e )
+                        {
+                            // Unexpected error; log and finalize login
+                            console.error( 'Error destroying previous session', e );
+                            db.run( 'UPDATE users SET current_session_id = ? WHERE name = ?', [ newSid, user.name ], ( upErr ) =>
+                            {
+                                if ( upErr ) console.error( 'Failed to update current_session_id after login', upErr && upErr.message );
+                                return finalizeLogin();
+                            } );
+                        }
+                    } else
+                    {
+                        // No previous session or same session - simply record the mapping and finalize
+                        db.run( 'UPDATE users SET current_session_id = ? WHERE name = ?', [ newSid, user.name ], ( upErr ) =>
+                        {
+                            if ( upErr ) console.error( 'Failed to update current_session_id after login', upErr && upErr.message );
+                            return finalizeLogin();
+                        } );
+                    }
                 } else
                 {
                     // invalid credentials: set session flash and redirect to login page
@@ -568,10 +653,24 @@ app.get( '/login/error', ( req, res ) =>
 
 app.get( '/logout', ( req, res ) =>
 {
-    req.session.destroy( () =>
+    if ( req.session && req.session.user )
     {
-        res.redirect( '/' );
-    } );
+        const username = req.session.user.name;
+        db.run( 'UPDATE users SET current_session_id = ? WHERE name = ?', [ '', username ], ( upErr ) =>
+        {
+            if ( upErr ) console.error( 'Failed to clear current_session_id on logout', upErr && upErr.message );
+            req.session.destroy( () =>
+            {
+                res.redirect( '/' );
+            } );
+        } );
+    } else
+    {
+        req.session.destroy( () =>
+        {
+            res.redirect( '/' );
+        } );
+    }
 } );
 
 app.get( '/user/me', requireLogin, ( req, res ) =>

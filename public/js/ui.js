@@ -19,17 +19,14 @@
     modal.style.justifyContent = 'center';
     modal.innerHTML = `
       <div class="modal-content card">
-        <div style="display:flex;justify-content:flex-end"><button id="app-modal-close" class="close-button" style="border:none;background:transparent;font-size:20px">&times;</button></div>
         <p id="app-modal-message" style="margin-top:0"></p>
         <div style="margin-top:12px"><button id="app-modal-ok" class="btn">OK</button></div>
       </div>
     `;
     document.body.appendChild( modal );
 
-    const close = modal.querySelector( '#app-modal-close' );
     const ok = modal.querySelector( '#app-modal-ok' );
     const hide = () => { modal.style.display = 'none'; };
-    close.addEventListener( 'click', hide );
     ok.addEventListener( 'click', hide );
     modal.addEventListener( 'click', ( ev ) => { if ( ev.target === modal ) hide(); } );
   }
@@ -87,8 +84,13 @@
         ok.removeEventListener( 'click', onOk );
         cancel.removeEventListener( 'click', onCancel );
         confirmEl.removeEventListener( 'click', onOverlay );
+        document.removeEventListener( 'keydown', onKeyDown );
         resolve( result );
       }
+
+      // Handle Escape key as Cancel for confirm modal
+      function onKeyDown ( ev ) { if ( ev && ( ev.key === 'Escape' || ev.key === 'Esc' ) ) { onCancel(); } }
+      document.addEventListener( 'keydown', onKeyDown );
 
       function onOk ( ev ) { ev && ev.preventDefault(); cleanup( true ); }
       function onCancel ( ev ) { ev && ev.preventDefault(); cleanup( false ); }
@@ -106,6 +108,16 @@
   // expose global helper
   window.showAppModal = showAppModal;
   window.showAppConfirm = showAppConfirm;
+  // Global Escape handler: close informational modal (if visible)
+  document.addEventListener( 'keydown', ( ev ) =>
+  {
+    if ( !ev ) return;
+    if ( ev.key === 'Escape' || ev.key === 'Esc' )
+    {
+      const m = document.getElementById( 'app-modal' );
+      if ( m && m.style && m.style.display === 'flex' ) m.style.display = 'none';
+    }
+  } );
 } )();
 
 // Device detection helper: set a cookie `device_type=mobile|desktop` for server-side enforcement

@@ -242,3 +242,29 @@ th
 {
     max-width: min(var(--container-max-width), calc(100% - 32px));
 }
+
+/* Small utility classes moved here from app.css */
+.hidden
+{
+    display: none !important;
+}
+
+.mt-8
+{
+    margin-top: 8px;
+}
+
+.ml-12
+{
+    margin-left: 12px;
+}
+
+.text-right
+{
+    text-align: right;
+}
+
+.pt-18
+{
+    padding-top: 18px;
+}

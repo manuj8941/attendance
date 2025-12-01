@@ -150,3 +150,35 @@
     display: inline-block;
     vertical-align: middle
 }
+
+/* Notice variants (moved from app.css) */
+.notice.warning
+{
+    background: #fff7ed;
+    border: 1px solid #f59e0b;
+    color: #92400e;
+}
+
+.notice.error
+{
+    background: #fff1f2;
+    border: 1px solid #fecaca;
+    color: #991b1b;
+}
+
+.notice.success
+{
+    background: #ecfdf5;
+    border: 1px solid #bbf7d0;
+    color: #065f46;
+}
+
+/* Simple banner style for top-of-page messages */
+.banner
+{
+    width: 100%;
+    box-sizing: border-box;
+    padding: 10px 12px;
+    border-radius: 8px;
+    margin-bottom: 12px;
+}
