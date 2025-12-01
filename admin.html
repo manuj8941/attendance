@@ -97,17 +97,7 @@
                     Password</a> | <a href="/logout">Logout</a></p>
 
             <!-- Owner settings accessible from App Settings -->
-            <div class="section" id="test-date-section"
-                style="display:none;background:#fff6f6;border:1px solid #ffd6d6">
-                <h2>Test Date Override (Owner)</h2>
-                <p class="small">Set a permanent test date that the app will treat as "today" for all users. Leave blank
-                    to clear.</p>
-                <label for="test-date-input">Test Date</label>
-                <input type="date" id="test-date-input">
-                <button id="set-test-date">Set Test Date</button>
-                <button id="clear-test-date">Clear Test Date</button>
-                <div id="current-test-date" class="small" style="margin-top:8px"></div>
-            </div>
+            <!-- Test Date Override was moved to App Settings page -->
 
             <!-- Section for Leave Request Management -->
             <div class="section">
@@ -319,90 +309,7 @@
                     }
                 } );
 
-                // --- Test Date Override UI ---
-                ( function ()
-                {
-                    try
-                    {
-                        // Use the already-fetched `currentUser` to avoid an extra network request
-                        if ( !currentUser || currentUser.role !== 'owner' ) return; // only show to owner
-
-                        const info = document.getElementById( 'current-test-date' );
-                        function formatDatePretty ( iso )
-                        {
-                            if ( !iso ) return iso;
-                            // Expect iso YYYY-MM-DD -> format to D-MMM-YY (e.g., 4-Dec-25)
-                            const parts = iso.split( '-' );
-                            if ( parts.length !== 3 ) return iso;
-                            const y = parts[ 0 ];
-                            const m = parseInt( parts[ 1 ], 10 );
-                            const d = parseInt( parts[ 2 ], 10 );
-                            const months = [ 'Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec' ];
-                            return `${ d }-${ months[ m - 1 ] }-${ y.slice( 2 ) }`;
-                        }
-                        const input = document.getElementById( 'test-date-input' );
-                        const setBtn = document.getElementById( 'set-test-date' );
-                        const clearBtn = document.getElementById( 'clear-test-date' );
-
-                        // fetch current value (owner only)
-                        ( async function ()
-                        {
-                            try
-                            {
-                                const curRes = await fetch( '/admin/settings/test-date' );
-                                if ( curRes.ok )
-                                {
-                                    const body = await curRes.json();
-                                    if ( body && body.test_date )
-                                    {
-                                        info.textContent = `Current override: ${ formatDatePretty( body.test_date ) }`;
-                                        input.value = body.test_date;
-                                    } else
-                                    {
-                                        info.textContent = 'No test date override is set.';
-                                    }
-                                }
-                            } catch ( e ) { /* ignore */ }
-                        } )();
-
-                        setBtn.addEventListener( 'click', async () =>
-                        {
-                            const dt = input.value;
-                            try
-                            {
-                                const res = await fetch( '/admin/settings/test-date', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify( { test_date: dt } ) } );
-                                const body = await res.json();
-                                if ( res.ok && body.success )
-                                {
-                                    info.textContent = body.test_date ? `Current override: ${ formatDatePretty( body.test_date ) }` : 'No test date override is set.';
-                                    showAppModal( 'Test date override saved.', 'success' );
-                                } else
-                                {
-                                    showAppModal( body.message || 'Could not save test date.', 'error' );
-                                }
-                            } catch ( e ) { console.error( e ); showAppModal( 'Could not save test date.', 'error' ); }
-                        } );
-
-                        clearBtn.addEventListener( 'click', async () =>
-                        {
-                            try
-                            {
-                                const res = await fetch( '/admin/settings/test-date', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify( { test_date: '' } ) } );
-                                const body = await res.json();
-                                if ( res.ok && body.success )
-                                {
-                                    info.textContent = 'No test date override is set.';
-                                    input.value = '';
-                                    showAppModal( 'Test date override cleared.', 'success' );
-                                } else
-                                {
-                                    showAppModal( body.message || 'Could not clear test date.', 'error' );
-                                }
-                            } catch ( e ) { console.error( e ); showAppModal( 'Could not clear test date.', 'error' ); }
-                        } );
-
-                    } catch ( e ) { /* ignore */ }
-                } )();
+                // Test Date Override moved to App Settings; nothing to initialize here.
 
                 // Reset passwords handler
                 const resetForm = document.getElementById( 'reset-password-form' );

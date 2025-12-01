@@ -67,13 +67,7 @@ db.serialize( () =>
             console.error( "Error creating users table", err.message );
             return;
         }
-        // Add new columns if they don't exist. This is for existing databases.
-        db.run( "ALTER TABLE users ADD COLUMN leave_balance REAL DEFAULT 0", () => { } );
-        db.run( "ALTER TABLE users ADD COLUMN leave_balance_last_updated TEXT", () => { } );
-        db.run( "ALTER TABLE users ADD COLUMN join_date TEXT DEFAULT \'2025-01-01\'", () => { } );
-        // Migrate legacy role names if present
-        db.run( "UPDATE users SET role = 'owner' WHERE role = 'owner_admin'", () => { } );
-        db.run( "UPDATE users SET role = 'manager' WHERE role = 'employee_admin'", () => { } );
+        // Schema is managed centrally; no runtime ALTER/UPDATE migrations required here.
     } );
 
     const stmtUsers = db.prepare( 'INSERT OR IGNORE INTO users (name, password, role, join_date) VALUES (?, ?, ?, ?)' );
@@ -115,10 +109,20 @@ db.serialize( () =>
         approved_by TEXT
     )`);
 
-    // Add columns for backdated flag and take-back tracking if they don't exist (for existing DBs)
-    db.run( "ALTER TABLE leaves ADD COLUMN is_backdated INTEGER DEFAULT 0", () => { } );
-    db.run( "ALTER TABLE leaves ADD COLUMN taken_back INTEGER DEFAULT 0", () => { } );
-    db.run( "ALTER TABLE leaves ADD COLUMN taken_back_at TEXT DEFAULT ''", () => { } );
+    // Ensure optional columns exist on `leaves` for older databases.
+    // This performs a safe PRAGMA check and only adds missing columns so existing DBs
+    // that were created before these columns were introduced won't cause runtime SQL errors.
+    db.all( "PRAGMA table_info(leaves)", [], ( prErr, cols ) =>
+    {
+        if ( prErr ) return; // cannot verify, skip safely
+        try
+        {
+            const names = ( cols || [] ).map( c => c.name );
+            if ( names.indexOf( 'is_backdated' ) === -1 ) db.run( "ALTER TABLE leaves ADD COLUMN is_backdated INTEGER DEFAULT 0" );
+            if ( names.indexOf( 'taken_back' ) === -1 ) db.run( "ALTER TABLE leaves ADD COLUMN taken_back INTEGER DEFAULT 0" );
+            if ( names.indexOf( 'taken_back_at' ) === -1 ) db.run( "ALTER TABLE leaves ADD COLUMN taken_back_at TEXT DEFAULT ''" );
+        } catch ( e ) { /* ignore migration errors */ }
+    } );
 
     // Settings table for simple app-wide flags (e.g. desktop access toggle)
     db.run( "CREATE TABLE IF NOT EXISTS settings (name TEXT PRIMARY KEY, value TEXT)", ( err ) =>
@@ -147,10 +151,9 @@ db.serialize( () =>
     db.run( `CREATE TABLE IF NOT EXISTS holidays (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         name TEXT,
-        month_day TEXT
+        month_day TEXT,
+        date TEXT
     )` );
-    // add optional full-date column for one-off holidays (YYYY-MM-DD)
-    db.run( "ALTER TABLE holidays ADD COLUMN date TEXT", () => { } );
 
     // Weekly off scheduling (1 default -> All Sundays off). Stored in settings as 'weekly_off_mode'
     db.run( "INSERT OR IGNORE INTO settings (name, value) VALUES (?, ?)", [ 'weekly_off_mode', '1' ] );
@@ -199,11 +202,6 @@ db.serialize( () =>
 } );
 
 // --- HELPER FUNCTIONS ---
-function formatDateTimeForDisplay ( date, time )
-{
-    if ( !date || !time ) return null;
-    return moment( `${ date } ${ time }`, 'YYYY-MM-DD HH:mm:ss' ).format( 'D-MMM-YY, h:mm A' );
-}
 
 function formatTimeForDisplay ( date, time )
 {
@@ -1183,6 +1181,13 @@ app.post( '/admin/settings/test-date', requireOwner, ( req, res ) =>
         if ( err ) return res.status( 500 ).json( { success: false, message: err.message } );
         // update cache
         req.app.locals.testDateOverride = value;
+        if ( value )
+        {
+            console.log( `${ req.session.user.name } set application test date override to ${ formatDateForDisplay( value ) }` );
+        } else
+        {
+            console.log( `${ req.session.user.name } cleared the application test date override` );
+        }
         return res.json( { success: true, test_date: value || null } );
     } );
 } );
@@ -1200,6 +1205,11 @@ app.post( '/admin/settings/app', requireOwner, ( req, res ) =>
     const enabled = ( desktop_enabled === true || desktop_enabled === '1' || desktop_enabled === 1 ) ? '1' : '0';
     db.run( 'INSERT OR REPLACE INTO settings (name, value) VALUES (?, ?)', [ 'desktop_enabled', enabled ] );
     db.run( 'INSERT OR REPLACE INTO settings (name, value) VALUES (?, ?)', [ 'weekly_off_mode', mode ] );
+    const desktopText = ( enabled === '1' ) ? 'enabled desktop access for non-owners' : 'disabled desktop access for non-owners';
+    let weeklyText = 'weekly off: Sundays';
+    if ( mode === '2' ) weeklyText = 'weekly off: Sundays & Saturdays';
+    else if ( mode === '3' ) weeklyText = 'weekly off: Sundays + 2nd & 4th Saturdays';
+    console.log( `${ req.session.user.name } updated app settings: ${ desktopText }; ${ weeklyText }.` );
     return res.json( { success: true } );
 } );
 
@@ -1217,6 +1227,7 @@ app.post( '/admin/settings/app/ad-hoc/add', requireOwner, ( req, res ) =>
     db.run( 'INSERT OR REPLACE INTO ad_hoc_offs (date, reason, created_by, created_at) VALUES (?, ?, ?, ?)', [ date, r, req.session.user.name, ts ], function ( err )
     {
         if ( err ) return res.status( 500 ).json( { success: false, message: err.message } );
+        console.log( `${ req.session.user.name } declared ad-hoc off on ${ formatDateForDisplay( date ) }${ r ? ` — reason: ${ r }` : '' }` );
         return res.json( { success: true } );
     } );
 } );
@@ -1226,10 +1237,18 @@ app.post( '/admin/settings/app/ad-hoc/remove', requireOwner, ( req, res ) =>
 {
     const { id } = req.body || {};
     if ( !id ) return res.status( 400 ).json( { success: false, message: 'id is required.' } );
-    db.run( 'DELETE FROM ad_hoc_offs WHERE id = ?', [ id ], function ( err )
+    // Fetch record to produce a friendly log, then delete
+    db.get( 'SELECT date, reason FROM ad_hoc_offs WHERE id = ?', [ id ], ( getErr, row ) =>
     {
-        if ( err ) return res.status( 500 ).json( { success: false, message: err.message } );
-        return res.json( { success: true } );
+        if ( getErr ) return res.status( 500 ).json( { success: false, message: getErr.message } );
+        if ( !row ) return res.status( 404 ).json( { success: false, message: 'Ad-hoc off not found.' } );
+        const dateText = row.date ? formatDateForDisplay( row.date ) : `id=${ id }`;
+        db.run( 'DELETE FROM ad_hoc_offs WHERE id = ?', [ id ], function ( delErr )
+        {
+            if ( delErr ) return res.status( 500 ).json( { success: false, message: delErr.message } );
+            console.log( `${ req.session.user.name } removed ad-hoc off on ${ dateText }${ row.reason ? ` — reason: ${ row.reason }` : '' } (id=${ id })` );
+            return res.json( { success: true } );
+        } );
     } );
 } );
 
@@ -1262,6 +1281,17 @@ app.post( '/admin/settings/app/holidays/add', requireOwner, ( req, res ) =>
     db.run( 'INSERT INTO holidays (name, month_day, date) VALUES (?, ?, ?)', [ name.toString().substring( 0, 100 ), insertMonthDay, insertDate ], function ( err )
     {
         if ( err ) return res.status( 500 ).json( { success: false, message: err.message } );
+        let dateText = '';
+        if ( insertDate ) dateText = formatDateForDisplay( insertDate );
+        else
+        {
+            try
+            {
+                const m = moment( insertMonthDay, 'MM-DD', true );
+                dateText = `recurring on ${ m.isValid() ? m.format( 'D-MMM' ) : insertMonthDay }`;
+            } catch ( e ) { dateText = `recurring on ${ insertMonthDay }`; }
+        }
+        console.log( `${ req.session.user.name } added holiday '${ name }' — ${ dateText }` );
         return res.json( { success: true } );
     } );
 } );
@@ -1271,10 +1301,27 @@ app.post( '/admin/settings/app/holidays/remove', requireOwner, ( req, res ) =>
 {
     const { id } = req.body || {};
     if ( !id ) return res.status( 400 ).json( { success: false, message: 'id is required.' } );
-    db.run( 'DELETE FROM holidays WHERE id = ?', [ id ], function ( err )
+    // Fetch holiday details so we can log a friendly message, then delete
+    db.get( 'SELECT name, month_day, date FROM holidays WHERE id = ?', [ id ], ( getErr, row ) =>
     {
-        if ( err ) return res.status( 500 ).json( { success: false, message: err.message } );
-        return res.json( { success: true } );
+        if ( getErr ) return res.status( 500 ).json( { success: false, message: getErr.message } );
+        if ( !row ) return res.status( 404 ).json( { success: false, message: 'Holiday not found.' } );
+        let dateText = '';
+        if ( row.date ) dateText = formatDateForDisplay( row.date );
+        else
+        {
+            try
+            {
+                const m = moment( row.month_day, 'MM-DD', true );
+                dateText = m.isValid() ? m.format( 'D-MMM' ) : row.month_day;
+            } catch ( e ) { dateText = row.month_day; }
+        }
+        db.run( 'DELETE FROM holidays WHERE id = ?', [ id ], function ( delErr )
+        {
+            if ( delErr ) return res.status( 500 ).json( { success: false, message: delErr.message } );
+            console.log( `${ req.session.user.name } removed holiday '${ row.name }' — ${ dateText } (id=${ id })` );
+            return res.json( { success: true } );
+        } );
     } );
 } );
 
