@@ -252,7 +252,7 @@
                 function resetIdleTimer ()
                 {
                     if ( idleTimer ) clearTimeout( idleTimer );
-                    idleTimer = setTimeout( () => { stopStream(); }, 20000 );
+                    idleTimer = setTimeout( () => { stopStream(); }, 5000 );
                 }
 
                 // Open camera on demand
@@ -347,10 +347,28 @@
                     document.getElementById( 'latitude' ).value = position.coords.latitude;
                     document.getElementById( 'longitude' ).value = position.coords.longitude;
 
-                    const statusResponse = await fetch( '/attendance/status' );
-                    const statusData = await statusResponse.json();
-                    const status = statusData && statusData.status ? statusData.status : null;
-                    const offMessage = statusData && statusData.message ? statusData.message : '';
+                    let status = null;
+                    let offMessage = '';
+                    try
+                    {
+                        const statusResponse = await fetch( '/attendance/status' );
+                        if ( !statusResponse.ok ) throw new Error( 'Could not fetch attendance status' );
+                        const statusData = await statusResponse.json();
+                        status = statusData && statusData.status ? statusData.status : null;
+                        offMessage = statusData && statusData.message ? statusData.message : '';
+                    } catch ( fetchErr )
+                    {
+                        console.error( 'Could not fetch /attendance/status:', fetchErr );
+                        // As a fallback, allow the user to attempt marking in — show the form and default to mark-in
+                        form.action = '/mark-in';
+                        pendingAction = '/mark-in';
+                        setOpenCaption();
+                        form.style.display = 'block';
+                        actionButton.disabled = false;
+                        video.style.display = 'none';
+                        canvas.style.display = 'none';
+                        // continue — do not throw so finally hides loading
+                    }
 
                     // Clear any previous notice
                     const noticeEl = document.getElementById( 'attendance-notice' );
@@ -363,6 +381,9 @@
                         pendingAction = '/mark-in';
                         setOpenCaption();
                         form.style.display = 'block';
+                        video.style.display = 'none';
+                        canvas.style.display = 'none';
+                        actionButton.disabled = false;
                     } else if ( status === 'marked_in' )
                     {
                         dayCompleteMessage.style.display = 'none';
@@ -370,16 +391,34 @@
                         pendingAction = '/mark-out';
                         setOpenCaption();
                         form.style.display = 'block';
+                        video.style.display = 'none';
+                        canvas.style.display = 'none';
+                        actionButton.disabled = false;
                     } else if ( status === 'marked_out' )
                     {
-                        // Completed for today
+                        // Completed for today — hide form and stop camera
                         if ( noticeEl ) noticeEl.textContent = 'Your attendance for today is complete.';
                         dayCompleteMessage.style.display = 'block';
+                        // ensure interactive elements are hidden/disabled
+                        form.style.display = 'none';
+                        video.style.display = 'none';
+                        canvas.style.display = 'none';
+                        try { stopStream(); } catch ( e ) { /* ignore */ }
+                        pendingAction = null;
+                        setOpenCaption();
+                        actionButton.disabled = true;
                     } else if ( status === 'off' )
                     {
                         // Server-provided friendly off-day message
                         if ( noticeEl ) noticeEl.textContent = offMessage || 'Attendance is not required today.';
                         dayCompleteMessage.style.display = 'block';
+                        form.style.display = 'none';
+                        video.style.display = 'none';
+                        canvas.style.display = 'none';
+                        try { stopStream(); } catch ( e ) { /* ignore */ }
+                        pendingAction = null;
+                        setOpenCaption();
+                        actionButton.disabled = true;
                     }
                 } catch ( error )
                 {
@@ -467,7 +506,7 @@
                     if ( document.hidden )
                     {
                         if ( hiddenStopTimer ) clearTimeout( hiddenStopTimer );
-                        hiddenStopTimer = setTimeout( () => { stopStream(); }, 20000 );
+                        hiddenStopTimer = setTimeout( () => { stopStream(); }, 5000 );
                     } else
                     {
                         if ( hiddenStopTimer ) { clearTimeout( hiddenStopTimer ); hiddenStopTimer = null; }

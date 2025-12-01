@@ -792,23 +792,42 @@ app.post( '/mark-in', requireLogin, ( req, res ) =>
         const selfiePath = path.join( selfiesDir, user.name, `${ user.name }_${ date }_${ time.replace( /:/g, '-' ) }_in.jpg` );
         const base64Data = ( selfie || '' ).replace( /^data:image\/jpeg;base64,/, "" );
         fs.writeFile( selfiePath, base64Data, 'base64', ( err ) => { if ( err ) console.error( err ); } );
-
-        db.run( `INSERT INTO attendance_${ user.name } (date, in_time, in_latitude, in_longitude, in_selfie_path) VALUES (?, ?, ?, ?, ?)`,
-            [ date, time, latitude, longitude, selfiePath ], function ( err )
+        // Defensive: ensure user hasn't already marked in for this date
+        db.get( `SELECT in_time FROM attendance_${ user.name } WHERE date = ?`, [ date ], ( selErr, existing ) =>
         {
-            if ( err )
+            if ( selErr )
             {
-                console.error( err.message );
+                console.error( selErr.message );
                 const acceptsJson = req.headers && req.headers.accept && req.headers.accept.indexOf( 'application/json' ) !== -1;
                 const isXhr = req.xhr || ( req.headers && req.headers[ 'x-requested-with' ] === 'XMLHttpRequest' );
                 if ( acceptsJson || isXhr ) return res.status( 500 ).json( { success: false, message: 'Could not mark in. Please try again.' } );
                 return res.redirect( '/dashboard' );
             }
-            console.log( `${ user.name } marked in on ${ now.format( 'D-MMM-YY' ) } at ${ now.format( 'h:mm A' ) }` );
-            const acceptsJson = req.headers && req.headers.accept && req.headers.accept.indexOf( 'application/json' ) !== -1;
-            const isXhr = req.xhr || ( req.headers && req.headers[ 'x-requested-with' ] === 'XMLHttpRequest' );
-            if ( acceptsJson || isXhr ) return res.json( { success: true, message: 'Marked in successfully.' } );
-            res.redirect( '/dashboard' );
+            if ( existing && existing.in_time )
+            {
+                const acceptsJson = req.headers && req.headers.accept && req.headers.accept.indexOf( 'application/json' ) !== -1;
+                const isXhr = req.xhr || ( req.headers && req.headers[ 'x-requested-with' ] === 'XMLHttpRequest' );
+                if ( acceptsJson || isXhr ) return res.status( 400 ).json( { success: false, message: 'You have already marked in for today.' } );
+                return res.redirect( '/dashboard' );
+            }
+
+            db.run( `INSERT INTO attendance_${ user.name } (date, in_time, in_latitude, in_longitude, in_selfie_path) VALUES (?, ?, ?, ?, ?)`,
+                [ date, time, latitude, longitude, selfiePath ], function ( err )
+            {
+                if ( err )
+                {
+                    console.error( err.message );
+                    const acceptsJson = req.headers && req.headers.accept && req.headers.accept.indexOf( 'application/json' ) !== -1;
+                    const isXhr = req.xhr || ( req.headers && req.headers[ 'x-requested-with' ] === 'XMLHttpRequest' );
+                    if ( acceptsJson || isXhr ) return res.status( 500 ).json( { success: false, message: 'Could not mark in. Please try again.' } );
+                    return res.redirect( '/dashboard' );
+                }
+                console.log( `${ user.name } marked in on ${ now.format( 'D-MMM-YY' ) } at ${ now.format( 'h:mm A' ) }` );
+                const acceptsJson = req.headers && req.headers.accept && req.headers.accept.indexOf( 'application/json' ) !== -1;
+                const isXhr = req.xhr || ( req.headers && req.headers[ 'x-requested-with' ] === 'XMLHttpRequest' );
+                if ( acceptsJson || isXhr ) return res.json( { success: true, message: 'Marked in successfully.' } );
+                res.redirect( '/dashboard' );
+            } );
         } );
     }
 
@@ -850,22 +869,49 @@ app.post( '/mark-out', requireLogin, ( req, res ) =>
         const selfiePath = path.join( selfiesDir, user.name, `${ user.name }_${ date }_${ time.replace( /:/g, '-' ) }_out.jpg` );
         const base64Data = ( selfie || '' ).replace( /^data:image\/jpeg;base64,/, "" );
         fs.writeFile( selfiePath, base64Data, 'base64', ( err ) => { if ( err ) console.error( err ); } );
-        db.run( `UPDATE attendance_${ user.name } SET out_time = ?, out_latitude = ?, out_longitude = ?, out_selfie_path = ? WHERE date = ?`,
-            [ time, latitude, longitude, selfiePath, date ], function ( err )
+        // Defensive: ensure there's an in_time and no out_time yet
+        db.get( `SELECT in_time, out_time FROM attendance_${ user.name } WHERE date = ?`, [ date ], ( selErr, row ) =>
         {
-            if ( err )
+            if ( selErr )
             {
-                console.error( err.message );
+                console.error( selErr.message );
                 const acceptsJson = req.headers && req.headers.accept && req.headers.accept.indexOf( 'application/json' ) !== -1;
                 const isXhr = req.xhr || ( req.headers && req.headers[ 'x-requested-with' ] === 'XMLHttpRequest' );
                 if ( acceptsJson || isXhr ) return res.status( 500 ).json( { success: false, message: 'Could not mark out. Please try again.' } );
                 return res.redirect( '/dashboard' );
             }
-            console.log( `${ user.name } marked out on ${ now.format( 'D-MMM-YY' ) } at ${ now.format( 'h:mm A' ) }` );
-            const acceptsJson = req.headers && req.headers.accept && req.headers.accept.indexOf( 'application/json' ) !== -1;
-            const isXhr = req.xhr || ( req.headers && req.headers[ 'x-requested-with' ] === 'XMLHttpRequest' );
-            if ( acceptsJson || isXhr ) return res.json( { success: true, message: 'Marked out successfully.' } );
-            res.redirect( '/dashboard' );
+            if ( !row || !row.in_time )
+            {
+                const acceptsJson = req.headers && req.headers.accept && req.headers.accept.indexOf( 'application/json' ) !== -1;
+                const isXhr = req.xhr || ( req.headers && req.headers[ 'x-requested-with' ] === 'XMLHttpRequest' );
+                if ( acceptsJson || isXhr ) return res.status( 400 ).json( { success: false, message: 'Cannot mark out: no corresponding mark-in found.' } );
+                return res.redirect( '/dashboard' );
+            }
+            if ( row.out_time )
+            {
+                const acceptsJson = req.headers && req.headers.accept && req.headers.accept.indexOf( 'application/json' ) !== -1;
+                const isXhr = req.xhr || ( req.headers && req.headers[ 'x-requested-with' ] === 'XMLHttpRequest' );
+                if ( acceptsJson || isXhr ) return res.status( 400 ).json( { success: false, message: 'You have already marked out for today.' } );
+                return res.redirect( '/dashboard' );
+            }
+
+            db.run( `UPDATE attendance_${ user.name } SET out_time = ?, out_latitude = ?, out_longitude = ?, out_selfie_path = ? WHERE date = ?`,
+                [ time, latitude, longitude, selfiePath, date ], function ( err )
+            {
+                if ( err )
+                {
+                    console.error( err.message );
+                    const acceptsJson = req.headers && req.headers.accept && req.headers.accept.indexOf( 'application/json' ) !== -1;
+                    const isXhr = req.xhr || ( req.headers && req.headers[ 'x-requested-with' ] === 'XMLHttpRequest' );
+                    if ( acceptsJson || isXhr ) return res.status( 500 ).json( { success: false, message: 'Could not mark out. Please try again.' } );
+                    return res.redirect( '/dashboard' );
+                }
+                console.log( `${ user.name } marked out on ${ now.format( 'D-MMM-YY' ) } at ${ now.format( 'h:mm A' ) }` );
+                const acceptsJson = req.headers && req.headers.accept && req.headers.accept.indexOf( 'application/json' ) !== -1;
+                const isXhr = req.xhr || ( req.headers && req.headers[ 'x-requested-with' ] === 'XMLHttpRequest' );
+                if ( acceptsJson || isXhr ) return res.json( { success: true, message: 'Marked out successfully.' } );
+                res.redirect( '/dashboard' );
+            } );
         } );
     }
 
