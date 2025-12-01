@@ -25,19 +25,53 @@
     `;
     document.body.appendChild( modal );
 
-    const ok = modal.querySelector( '#app-modal-ok' );
-    const hide = () => { modal.style.display = 'none'; };
-    ok.addEventListener( 'click', hide );
-    modal.addEventListener( 'click', ( ev ) => { if ( ev.target === modal ) hide(); } );
+    // Don't add static event listeners here - they'll be managed by showAppModal
+    // to support callbacks
   }
 
-  function showAppModal ( message, type )
+  function showAppModal ( message, type, onClose )
   {
     ensureModal();
     const modal = document.getElementById( 'app-modal' );
     const msg = document.getElementById( 'app-modal-message' );
+    const ok = document.getElementById( 'app-modal-ok' );
+
     msg.textContent = message || '';
     msg.className = type === 'success' ? 'status-approved' : ( type === 'error' ? 'status-rejected' : '' );
+
+    // Remove all previous click handlers
+    const newOk = ok.cloneNode( true );
+    ok.parentNode.replaceChild( newOk, ok );
+
+    // Create new handler that closes modal and calls callback
+    const closeHandler = () =>
+    {
+      modal.style.display = 'none';
+      if ( typeof onClose === 'function' )
+      {
+        try { onClose(); } catch ( e ) { console.error( 'Modal onClose error:', e ); }
+      }
+    };
+
+    newOk.addEventListener( 'click', closeHandler );
+
+    // Also handle click on overlay to close
+    const overlayHandler = ( ev ) =>
+    {
+      if ( ev.target === modal )
+      {
+        closeHandler();
+      }
+    };
+
+    // Remove old overlay listener if exists
+    if ( modal._overlayHandler )
+    {
+      modal.removeEventListener( 'click', modal._overlayHandler );
+    }
+    modal._overlayHandler = overlayHandler;
+    modal.addEventListener( 'click', overlayHandler );
+
     modal.style.display = 'flex';
   }
 

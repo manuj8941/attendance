@@ -277,7 +277,7 @@
                             {
                                 const res = await fetch( '/admin/settings/app/ad-hoc/remove', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify( { id } ) } );
                                 const body = await res.json();
-                                if ( res.ok && body.success ) { showAppModal( 'Removed.', 'success' ); window.location.reload(); }
+                                if ( res.ok && body.success ) { showAppModal( 'Removed.', 'success', () => window.location.reload() ); }
                                 else showAppModal( body.message || 'Failed to remove.', 'error' );
                             } catch ( e ) { console.error( e ); showAppModal( 'Failed to remove.', 'error' ); }
                         } );
@@ -294,7 +294,7 @@
                             {
                                 const res = await fetch( '/admin/settings/app/holidays/remove', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify( { id } ) } );
                                 const body = await res.json();
-                                if ( res.ok && body.success ) { showAppModal( 'Removed.', 'success' ); window.location.reload(); }
+                                if ( res.ok && body.success ) { showAppModal( 'Removed.', 'success', () => window.location.reload() ); }
                                 else showAppModal( body.message || 'Failed to remove.', 'error' );
                             } catch ( e ) { console.error( e ); showAppModal( 'Failed to remove.', 'error' ); }
                         } );
@@ -323,7 +323,7 @@
                         {
                             const res = await fetch( '/admin/settings/app/ad-hoc/add', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify( { date, reason } ) } );
                             const body = await res.json();
-                            if ( res.ok && body.success ) { showAppModal( 'Ad-hoc off added.', 'success' ); window.location.reload(); }
+                            if ( res.ok && body.success ) { showAppModal( 'Ad-hoc off added.', 'success', () => window.location.reload() ); }
                             else showAppModal( body.message || 'Could not add ad-hoc off.', 'error' );
                         } catch ( e ) { console.error( e ); showAppModal( 'Could not add ad-hoc off.', 'error' ); }
                     } );
@@ -351,7 +351,7 @@
                             }
                             const res = await fetch( '/admin/settings/app/holidays/add', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify( payload ) } );
                             const body = await res.json();
-                            if ( res.ok && body.success ) { showAppModal( 'Holiday added.', 'success' ); window.location.reload(); }
+                            if ( res.ok && body.success ) { showAppModal( 'Holiday added.', 'success', () => window.location.reload() ); }
                             else showAppModal( body.message || 'Could not add holiday.', 'error' );
                         } catch ( e ) { console.error( e ); showAppModal( 'Could not add holiday.', 'error' ); }
                     } );

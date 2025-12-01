@@ -610,17 +610,27 @@
                             const result = await resp.json();
                             if ( result.success )
                             {
-                                showModal( result.message, 'success' );
-                                loadLeaveHistory();
-                                loadLeaveBalance();
+                                showModal( result.message, 'success', () =>
+                                {
+                                    loadLeaveHistory();
+                                    loadLeaveBalance();
+                                } );
                             } else
                             {
-                                showModal( result.message || 'Could not take back leave.', 'error' );
+                                showModal( result.message || 'Could not take back leave.', 'error', () =>
+                                {
+                                    loadLeaveHistory();
+                                    loadLeaveBalance();
+                                } );
                             }
                         } catch ( ex )
                         {
                             console.error( ex );
-                            showModal( 'An unexpected error occurred while taking back leave.', 'error' );
+                            showModal( 'An unexpected error occurred while taking back leave.', 'error', () =>
+                            {
+                                loadLeaveHistory();
+                                loadLeaveBalance();
+                            } );
                         }
                     } );
                 } );
@@ -669,15 +679,19 @@
             }
 
             // Modal wrapper: use shared `showAppModal` when available to ensure consistent positioning
-            function showModal ( message, type )
+            function showModal ( message, type, onClose )
             {
                 if ( window.showAppModal )
                 {
-                    window.showAppModal( message, type );
+                    window.showAppModal( message, type, onClose );
                     return;
                 }
                 // Fallback for very old pages: simple alert
                 alert( message );
+                if ( typeof onClose === 'function' )
+                {
+                    try { onClose(); } catch ( e ) { /* ignore */ }
+                }
             }
 
             // Personal change-password moved to /profile to avoid duplication across pages.
