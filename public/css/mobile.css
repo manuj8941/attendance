@@ -1,13 +1,15 @@
-/* Mobile-first UI: force a mobile-style layout on all screen sizes */
+/* Mobile-first UI: Centralized Stylesheet */
 :root
 {
     --bg: #ffffff;
     --muted: #6b7280;
     --accent: #0ea5a4;
     --success: #16a34a;
+    /* Matches .approve-btn green */
     --danger: #dc2626;
+    /* Matches .reject-btn red */
     --card: #f8fafc;
-    /* Central container width used across the app; change to adjust overall mobile/desktop layout */
+    --border: #e2e8f0;
     --container-max-width: 420px;
 }
 
@@ -20,7 +22,7 @@ body
 body
 {
     margin: 0;
-    font-family: Inter, system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial;
+    font-family: Inter, system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
     background: var(--bg);
     color: #0f172a;
     -webkit-font-smoothing: antialiased;
@@ -30,11 +32,11 @@ body
     padding: 1rem;
 }
 
+/* --- Layout --- */
 .container
 {
     width: 100%;
     max-width: var(--container-max-width);
-    /* mobile width */
     background: transparent;
 }
 
@@ -45,26 +47,66 @@ body
     border-radius: 12px;
     padding: 12px;
     margin-bottom: 12px;
-    box-shadow: 0 6px 18px rgba(2, 6, 23, 0.04);
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+    border: 1px solid var(--border);
 }
 
+.section h2
+{
+    margin-top: 0;
+    /* Fixes spacing issues from old styles */
+}
+
+/* --- Typography --- */
 h1,
 h2
 {
-    margin: 0 0 8px 0;
-    font-weight: 600
+    margin: 0 0 12px 0;
+    font-weight: 600;
+    color: #1e293b;
+}
+
+h1
+{
+    font-size: 1.5rem;
+}
+
+h2
+{
+    font-size: 1.25rem;
 }
 
 p
 {
-    margin: 6px 0
+    margin: 0 0 12px 0;
+    line-height: 1.5;
 }
 
+a
+{
+    color: #0066cc;
+    text-decoration: none;
+}
+
+a:hover
+{
+    text-decoration: underline;
+}
+
+.small,
+.muted
+{
+    font-size: 0.875rem;
+    color: var(--muted);
+}
+
+/* --- Forms & Inputs --- */
 label
 {
     display: block;
     margin: 8px 0 4px 0;
-    font-size: 0.95rem
+    font-size: 0.9rem;
+    font-weight: 500;
 }
 
 input[type=text],
@@ -76,112 +118,183 @@ textarea
     width: 100%;
     box-sizing: border-box;
     padding: 10px;
-    border: 1px solid #e6eef0;
+    border: 1px solid var(--border);
     border-radius: 8px;
-    font-size: 1rem
+    font-size: 1rem;
+    background: #fff;
+    font-family: inherit;
 }
 
+input:focus,
+select:focus,
+textarea:focus
+{
+    outline: 2px solid var(--accent);
+    border-color: var(--accent);
+}
+
+/* --- Buttons --- */
 button,
 .btn
 {
     display: inline-block;
     padding: 12px 14px;
-    border-radius: 10px;
+    border-radius: 8px;
     border: none;
     background: var(--accent);
     color: white;
     font-weight: 600;
     width: 100%;
-    font-size: 1rem
+    /* Default full width for mobile */
+    font-size: 1rem;
+    cursor: pointer;
+    text-align: center;
+    transition: opacity 0.2s;
 }
 
-button.secondary
+button:hover,
+.btn:hover
 {
-    background: #e2e8f0;
-    color: #0f172a
+    opacity: 0.9;
+}
+
+button:disabled
+{
+    background: var(--muted);
+    cursor: not-allowed;
+}
+
+/* Specific Admin Action Buttons (from admin.html) */
+.approve-btn,
+.reject-btn
+{
+    display: inline-block;
+    width: auto;
+    /* Override 100% width */
+    padding: 8px 12px;
+    font-size: 0.875rem;
+    margin-right: 6px;
+    margin-bottom: 4px;
+    /* Stack nicely on very small screens */
+}
+
+.approve-btn
+{
+    background-color: var(--success);
+}
+
+.reject-btn
+{
+    background-color: var(--danger);
+}
+
+/* --- Tables --- */
+.table-wrap
+{
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+    border-radius: 8px;
+    border: 1px solid var(--border);
 }
 
 table
 {
     width: 100%;
     border-collapse: collapse;
-    margin-top: 8px;
-    font-size: 0.95rem
+    font-size: 0.9rem;
+    background: #fff;
 }
 
 th,
 td
 {
-    padding: 8px;
-    border-bottom: 1px solid #e6eef0;
-    text-align: left
+    padding: 10px 12px;
+    border-bottom: 1px solid var(--border);
+    text-align: left;
+    vertical-align: middle;
 }
 
-/* Make table text more compact and prevent wrapping so wide tables stay readable */
-.table-wrap table,
-.table-wrap thead th,
-.table-wrap tbody td
+th
 {
-    font-size: 0.88rem;
-    /* slightly smaller text */
-}
-
-.table-wrap th,
-.table-wrap td
-{
-    padding: 6px;
-    /* tighter cells */
+    background-color: #f1f5f9;
+    /* Light grey header for consistency */
+    font-weight: 600;
+    color: #475569;
     white-space: nowrap;
-    /* prevent wrapping */
-    overflow: hidden;
-    text-overflow: ellipsis;
-    /* show ellipsis for overflow */
 }
 
-.table-wrap td img
+/* Selfie images in tables */
+td img
 {
-    max-width: 80px;
-    /* make selfies smaller inside tables */
-    height: auto;
+    width: 60px;
+    height: 60px;
+    object-fit: cover;
+    border-radius: 4px;
     display: block;
 }
 
-img
-{
-    max-width: 100%;
-    height: auto;
-    border-radius: 8px
-}
-
-.muted
-{
-    color: var(--muted);
-    font-size: 0.95rem
-}
-
+/* --- Utilities (Status Colors, etc.) --- */
 .status-pending
 {
-    color: orange
+    color: #d97706;
+    font-weight: 500;
 }
 
+/* Orange */
 .status-approved
 {
-    color: var(--success)
+    color: var(--success);
+    font-weight: 500;
 }
 
 .status-rejected
 {
-    color: var(--danger)
+    color: var(--danger);
+    font-weight: 500;
 }
 
-.notice
+.status-withdrawn
 {
-    padding: 10px;
-    border-radius: 8px;
-    background: #f1f5f9;
-    color: #0f172a
+    color: var(--muted);
+    text-decoration: line-through;
 }
 
+/* Flexbox Utils (from appsettings.html) */
+.list-row
+{
+    display: flex;
+    justify-content: space-between;
+    gap: 12px;
+    align-items: center;
+}
+
+.list-row div
+{
+    flex: 1;
+}
+
+.list-row div:last-child
+{
+    flex: 0 0 auto;
+    /* Button container shouldn't stretch */
+}
+
+.hidden
+{
+    display: none !important;
+}
+
+.text-right
+{
+    text-align: right;
+}
+
+.mt-8
+{
+    margin-top: 8px;
+}
+
+/* --- Modal (Global) --- */
 .modal
 {
     position: fixed;
@@ -192,79 +305,28 @@ img
     display: none;
     align-items: center;
     justify-content: center;
-    background: rgba(2, 6, 23, 0.5);
+    background: rgba(15, 23, 42, 0.6);
+    /* Darker overlay */
+    z-index: 9999;
 }
 
 .modal .modal-content
 {
-    /* Keep modal narrow on small screens and ensure it doesn't exceed the page container width on larger screens */
-    width: 92%;
-    max-width: min(var(--container-max-width), calc(100% - 32px));
-    box-sizing: border-box;
-    padding: 12px;
-    overflow-wrap: anywhere;
-    word-break: break-word;
-    white-space: normal;
+    width: 90%;
+    max-width: 380px;
+    /* Fits inside container-max-width */
+    background: #fff;
+    padding: 20px;
+    border-radius: 12px;
+    box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.1);
 }
 
-/* make small interactive targets comfortable */
+/* Touch targets */
 button,
 input,
 select,
-textarea
+textarea,
+a
 {
-    touch-action: manipulation
-}
-
-/* responsive table wrapper */
-.table-wrap
-{
-    overflow-x: auto;
-    -webkit-overflow-scrolling: touch;
-}
-
-/* Prevent long words/values from expanding layout */
-td,
-th
-{
-    overflow-wrap: anywhere;
-    word-break: break-word;
-}
-
-.break-anywhere
-{
-    overflow-wrap: anywhere;
-    word-break: break-word;
-}
-
-/* Strong fallback kept minimal — ensure app modal also respects container width */
-#app-modal .modal-content
-{
-    max-width: min(var(--container-max-width), calc(100% - 32px));
-}
-
-/* Small utility classes moved here from app.css */
-.hidden
-{
-    display: none !important;
-}
-
-.mt-8
-{
-    margin-top: 8px;
-}
-
-.ml-12
-{
-    margin-left: 12px;
-}
-
-.text-right
-{
-    text-align: right;
-}
-
-.pt-18
-{
-    padding-top: 18px;
+    touch-action: manipulation;
 }

@@ -1774,7 +1774,7 @@ app.use( '/dashboard', requireLogin, ( req, res, next ) =>
 // Catch-all 404 handler (serve friendly page)
 app.use( ( req, res ) =>
 {
-    res.status( 404 ).sendFile( path.join( __dirname, '404.html' ) );
+    res.status( 404 ).sendFile( path.join( __dirname, '500.html' ) );
 } );
 
 // Error handler middleware (500)
@@ -1783,7 +1783,7 @@ app.use( ( err, req, res, next ) =>
     console.error( 'Server error:', err );
     if ( req.accepts( 'html' ) )
     {
-        res.status( 500 ).sendFile( path.join( __dirname, '500.html' ) );
+        res.status( 500 ).sendFile( path.join( __dirname, '404.html' ) );
     } else
     {
         res.status( 500 ).json( { error: 'Internal Server Error' } );
