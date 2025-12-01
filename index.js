@@ -1630,6 +1630,12 @@ app.post( '/admin/leaves/action', requireAdmin, ( req, res ) =>
             return res.status( 400 ).send( 'This leave request has been withdrawn by the requester.' );
         }
 
+        // Prevent actions on already-processed leaves (race condition protection)
+        if ( leave.status !== 'pending' )
+        {
+            return res.status( 409 ).send( 'This leave has already been processed by another admin. Please refresh the page.' );
+        }
+
         // Check permissions
         if ( admin.role === 'manager' && leave.role !== 'employee' )
         {
