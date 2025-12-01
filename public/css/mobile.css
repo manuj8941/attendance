@@ -54,7 +54,6 @@ body
 .section h2
 {
     margin-top: 0;
-    /* Fixes spacing issues from old styles */
 }
 
 /* --- Typography --- */
@@ -145,7 +144,6 @@ button,
     color: white;
     font-weight: 600;
     width: 100%;
-    /* Default full width for mobile */
     font-size: 1rem;
     cursor: pointer;
     text-align: center;
@@ -164,18 +162,16 @@ button:disabled
     cursor: not-allowed;
 }
 
-/* Specific Admin Action Buttons (from admin.html) */
+/* Specific Admin Action Buttons */
 .approve-btn,
 .reject-btn
 {
     display: inline-block;
     width: auto;
-    /* Override 100% width */
     padding: 8px 12px;
     font-size: 0.875rem;
     margin-right: 6px;
     margin-bottom: 4px;
-    /* Stack nicely on very small screens */
 }
 
 .approve-btn
@@ -217,13 +213,11 @@ td
 th
 {
     background-color: #f1f5f9;
-    /* Light grey header for consistency */
     font-weight: 600;
     color: #475569;
     white-space: nowrap;
 }
 
-/* Selfie images in tables */
 td img
 {
     width: 60px;
@@ -233,14 +227,13 @@ td img
     display: block;
 }
 
-/* --- Utilities (Status Colors, etc.) --- */
+/* --- Utilities --- */
 .status-pending
 {
     color: #d97706;
     font-weight: 500;
 }
 
-/* Orange */
 .status-approved
 {
     color: var(--success);
@@ -259,7 +252,6 @@ td img
     text-decoration: line-through;
 }
 
-/* Flexbox Utils (from appsettings.html) */
 .list-row
 {
     display: flex;
@@ -276,7 +268,6 @@ td img
 .list-row div:last-child
 {
     flex: 0 0 auto;
-    /* Button container shouldn't stretch */
 }
 
 .hidden
@@ -306,7 +297,6 @@ td img
     align-items: center;
     justify-content: center;
     background: rgba(15, 23, 42, 0.6);
-    /* Darker overlay */
     z-index: 9999;
 }
 
@@ -314,14 +304,12 @@ td img
 {
     width: 90%;
     max-width: 380px;
-    /* Fits inside container-max-width */
     background: #fff;
     padding: 20px;
     border-radius: 12px;
     box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.1);
 }
 
-/* Touch targets */
 button,
 input,
 select,
@@ -329,4 +317,161 @@ textarea,
 a
 {
     touch-action: manipulation;
+}
+
+/* --- Visual Calendar (Soft UI with Bright Borders) --- */
+.calendar-controls
+{
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 8px;
+    margin-bottom: 12px;
+    flex-wrap: wrap;
+}
+
+.calendar-header
+{
+    display: grid;
+    grid-template-columns: repeat(7, 1fr);
+    gap: 6px;
+    margin-bottom: 6px;
+    text-align: center;
+    font-size: 0.85rem;
+    font-weight: 600;
+    color: var(--muted);
+}
+
+.calendar-grid
+{
+    display: grid;
+    grid-template-columns: repeat(7, 1fr);
+    gap: 6px;
+    width: 100%;
+}
+
+.cal-day
+{
+    aspect-ratio: 1;
+    /* Force square shape */
+    border-radius: 8px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-weight: 600;
+    font-size: 0.95rem;
+    cursor: pointer;
+    background-color: #fff;
+    transition: transform 0.1s;
+    user-select: none;
+    box-sizing: border-box;
+    /* Important for borders */
+}
+
+.cal-day:active
+{
+    transform: scale(0.96);
+}
+
+/* Status Colors: Pastel Background + Strong 2px Border + Dark Text */
+.cal-status-present
+{
+    background-color: #dbeafe;
+    /* Soft Blue */
+    color: #1e40af;
+    /* Dark Blue Text */
+    border: 2px solid #60a5fa;
+    /* Bright Blue Border */
+}
+
+.cal-status-leave
+{
+    background-color: #f3e8ff;
+    /* Soft Purple */
+    color: #6b21a8;
+    /* Dark Purple Text */
+    border: 2px solid #c084fc;
+    /* Bright Purple Border */
+}
+
+.cal-status-holiday
+{
+    background-color: #dcfce7;
+    /* Soft Green */
+    color: #166534;
+    /* Dark Green Text */
+    border: 2px solid #4ade80;
+    /* Bright Green Border */
+}
+
+.cal-status-ad_hoc
+{
+    background-color: #ffedd5;
+    /* Soft Orange */
+    color: #9a3412;
+    /* Dark Orange Text */
+    border: 2px solid #fb923c;
+    /* Bright Orange Border */
+}
+
+.cal-status-weekly
+{
+    background-color: #f1f5f9;
+    /* Soft Grey */
+    color: #475569;
+    /* Dark Grey Text */
+    border: 2px solid #cbd5e1;
+    /* Mid Grey Border */
+}
+
+.cal-status-absent
+{
+    background-color: #fee2e2;
+    /* Soft Red */
+    color: #991b1b;
+    /* Dark Red Text */
+    border: 2px solid #f87171;
+    /* Bright Red Border */
+}
+
+/* Empty slot (padding for start of month) */
+.cal-day.empty
+{
+    background: transparent;
+    cursor: default;
+    border: none;
+}
+
+/* Legend Styling */
+.legend
+{
+    display: flex;
+    flex-wrap: wrap;
+    gap: 12px;
+    margin-top: 16px;
+    padding-top: 12px;
+    border-top: 1px solid var(--border);
+}
+
+.legend-item
+{
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 0.8rem;
+    color: #334155;
+}
+
+.legend-dot
+{
+    width: 10px;
+    height: 10px;
+    border-radius: 50%;
+}
+
+/* Navigation Buttons override */
+.nav-btn
+{
+    width: auto;
+    padding: 8px 12px;
 }

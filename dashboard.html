@@ -8,6 +8,8 @@
   
         <link rel="stylesheet" href="/css/mobile.css">
         <script src="/js/ui.js"></script>
+        <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/flatpickr/dist/flatpickr.min.css">
+        <link rel="stylesheet" type="text/css" href="https://npmcdn.com/flatpickr/dist/themes/mobile.css">
     </head>
 
     <body>
@@ -829,6 +831,22 @@
                         }
                     } );
                 }
+            } );
+        </script>
+        <script src="https://cdn.jsdelivr.net/npm/flatpickr"></script>
+        <script>
+            document.addEventListener( 'DOMContentLoaded', function ()
+            {
+                flatpickr( "input[type=date]", {
+                    locale: {
+                        firstDayOfWeek: 1 // 1 = Monday
+                    },
+                    disableMobile: true, // REQUIRED: Forces our custom calendar instead of the native phone one
+                    dateFormat: "Y-m-d", // Keeps the format compatible with your database
+                    altInput: true,      // Shows a friendly format to the user
+                    altFormat: "j-M-y",  // User sees: 6-December-2025
+                    allowInput: true     // Allows typing if needed
+                } );
             } );
         </script>
     </body>

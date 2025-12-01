@@ -7,393 +7,268 @@
         <title>Visual Calendar</title>
         <link rel="stylesheet" href="/css/mobile.css">
         <script src="/js/ui.js"></script>
-        <style>
-            .container {
-                /* Fixed mobile-style width used across the app (prevents wide expansion) */
-                max-width: 420px;
-                width: 100%;
-                margin: 12px auto;
-                padding: 0 12px;
-            }
-
-            .controls {
-                display: flex;
-                gap: 10px;
-                align-items: center;
-                margin-bottom: 12px
-            }
-
-            .calendar {
-                display: grid;
-                grid-template-columns: repeat(7, 1fr);
-                gap: 6px;
-                width: 100%;
-            }
-
-            .day {
-                background: #fff;
-                border: 1px solid #ddd;
-                padding: 8px;
-                min-height: 72px;
-                aspect-ratio: 1 / 1;
-                display: flex;
-                flex-direction: column;
-                justify-content: flex-start;
-                overflow: hidden;
-                box-sizing: border-box;
-                position: relative
-            }
-
-            .day .date {
-                position: absolute;
-                top: 6px;
-                right: 6px;
-                font-size: 0.85rem;
-                color: #666
-            }
-
-            .legend {
-                display: flex;
-                gap: 8px;
-                flex-wrap: wrap;
-                margin-top: 12px
-            }
-
-            .legend .item {
-                display: flex;
-                gap: 6px;
-                align-items: center
-            }
-
-            .swatch {
-                width: 16px;
-                height: 14px;
-                border-radius: 3px
-            }
-
-            .status-present {
-                background: #1976d2;
-                color: #fff
-            }
-
-            .status-weekly {
-                background: #efefef
-            }
-
-            .status-adhoc {
-                background: #ffb74d
-            }
-
-            .status-holiday {
-                background: #66bb6a
-            }
-
-            .status-leave {
-                background: #7e57c2
-            }
-
-            .status-absent {
-                background: #fff;
-                border: 1px solid #f44336
-            }
-
-            /* Ensure day tiles inherit status color when the class is applied to the tile */
-            .day.status-present {
-                background: #1976d2;
-                color: #fff
-            }
-
-            .day.status-leave {
-                background: #7e57c2;
-                color: #fff
-            }
-
-            .day.status-holiday {
-                background: #66bb6a;
-                color: #fff
-            }
-
-            .day.status-adhoc {
-                background: #ffb74d;
-                color: #000
-            }
-
-            .day.status-weekly {
-                background: #efefef;
-                color: #000
-            }
-
-            .day.status-absent {
-                background: #fff;
-                border: 1px solid #f44336;
-                color: #000
-            }
-
-            /* Responsive adjustments for small screens */
-            @media (max-width: 600px) {
-                .container {
-                    margin: 8px;
-                    padding: 0 8px
-                }
-
-                .controls {
-                    flex-wrap: wrap;
-                    gap: 8px
-                }
-
-                .user-select {
-                    min-width: 120px
-                }
-
-                .calendar {
-                    gap: 4px
-                }
-
-                .day {
-                    padding: 6px;
-                    min-height: 54px
-                }
-
-                .day .date {
-                    font-size: 0.75rem;
-                    top: 4px;
-                    right: 6px
-                }
-
-                .legend {
-                    font-size: 0.85rem
-                }
-
-                .swatch {
-                    width: 14px;
-                    height: 12px
-                }
-
-                #month-label {
-                    font-size: 0.95rem
-                }
-            }
-
-            .muted {
-                color: #666;
-                font-size: 0.9rem
-            }
-
-            .month-nav {
-                display: flex;
-                gap: 8px;
-                align-items: center
-            }
-
-            .user-select {
-                min-width: 180px
-            }
-        </style>
     </head>
 
     <body>
         <div class="container">
-            <h1>Visual Calendar</h1>
-            <p><a href="/dashboard">Back to Dashboard</a></p>
-            <p class="muted">At-a-glance attendance, offs & holidays. Click a day for details.</p>
-
-            <div class="controls">
-                <div class="month-nav">
-                    <button id="prev-month">◀</button>
-                    <strong id="month-label"></strong>
-                    <button id="next-month">▶</button>
+            <div class="section">
+                <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
+                    <h1>My Calendar</h1>
+                    <a href="/dashboard" style="font-size:0.9rem">Back</a>
                 </div>
-                <div style="margin-left:12px">
-                    <select id="user-select" class="user-select"></select>
+
+                <div class="calendar-controls">
+                    <div style="display:flex;gap:4px;align-items:center">
+                        <button id="prev-month" class="nav-btn">◀</button>
+                        <button id="next-month" class="nav-btn">▶</button>
+                        <strong id="month-label" style="margin-left:4px;font-size:1rem"></strong>
+                    </div>
+                    <div>
+                        <button id="today-btn" class="nav-btn">Today</button>
+                    </div>
                 </div>
-                <div style="margin-left:auto"><button id="today-btn">Today</button></div>
+
+                <div id="user-select-container" style="margin-bottom:12px;display:none">
+                    <select id="user-select"></select>
+                </div>
+
+                <div class="calendar-header">
+                    <div>Mon</div>
+                    <div>Tue</div>
+                    <div>Wed</div>
+                    <div>Thu</div>
+                    <div>Fri</div>
+                    <div>Sat</div>
+                    <div>Sun</div>
+                </div>
+
+                <div id="calendar" class="calendar-grid"></div>
+                <div id="calendar-loading" style="display:none;text-align:center;padding:20px;color:#666">Loading...
+                </div>
+
+                <div class="legend">
+                    <div class="legend-item">
+                        <div class="legend-dot cal-status-present"></div> Present
+                    </div>
+                    <div class="legend-item">
+                        <div class="legend-dot cal-status-absent"></div> Absent
+                    </div>
+                    <div class="legend-item">
+                        <div class="legend-dot cal-status-leave"></div> Leave
+                    </div>
+                    <div class="legend-item">
+                        <div class="legend-dot cal-status-holiday"></div> Holiday
+                    </div>
+                    <div class="legend-item">
+                        <div class="legend-dot cal-status-weekly"></div> Weekly Off
+                    </div>
+                    <div class="legend-item">
+                        <div class="legend-item">
+                            <div class="legend-item">
+                                <div class="legend-dot cal-status-ad_hoc"></div> Ad-hoc
+                            </div>
+                        </div>
+                    </div>
+                </div>
             </div>
 
-            <div style="display:grid;grid-template-columns:repeat(7,1fr);gap:6px;margin-bottom:6px;font-weight:600">
-                <div>Mon</div>
-                <div>Tue</div>
-                <div>Wed</div>
-                <div>Thu</div>
-                <div>Fri</div>
-                <div>Sat</div>
-                <div>Sun</div>
-            </div>
+            <script>
+                let cur = new Date();
+                let selUser = null;
 
-            <div id="calendar" class="calendar"></div>
-            <div id="calendar-loading" style="display:none;text-align:center;margin-top:8px">Loading calendar…</div>
+                function pad ( n ) { return n < 10 ? '0' + n : '' + n; }
 
-            <div class="legend">
-                <div class="item"><span class="swatch status-present"></span> Present</div>
-                <div class="item"><span class="swatch status-leave"></span> Approved Leave</div>
-                <div class="item"><span class="swatch status-holiday"></span> Holiday (one-off)</div>
-                <div class="item"><span class="swatch status-adhoc"></span> Ad-hoc Off</div>
-                <div class="item"><span class="swatch status-weekly"></span> Weekly Off</div>
-                <div class="item"><span class="swatch status-absent"></span> Absent</div>
-            </div>
-        </div>
-
-        <script>
-            // basic calendar client
-            let cur = new Date();
-            let selUser = null;
-
-            function pad ( n ) { return n < 10 ? '0' + n : '' + n; }
-
-            async function fetchUsersIfAllowed ()
-            {
-                // managers & owners can fetch list
-                try
+                // Fetch list of users (only works for admins/managers)
+                async function fetchUsersIfAllowed ()
                 {
-                    const res = await fetch( '/admin/users' );
-                    if ( !res.ok ) return null;
-                    return await res.json();
-                } catch ( e ) { return null; }
-            }
+                    try
+                    {
+                        const res = await fetch( '/admin/users' );
+                        if ( !res.ok ) return null;
+                        return await res.json();
+                    } catch ( e ) { return null; }
+                }
 
-            function setMonthLabel ( dt )
-            {
-                const months = [ 'January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December' ];
-                document.getElementById( 'month-label' ).textContent = months[ dt.getMonth() ] + ' ' + dt.getFullYear();
-            }
-
-            function formatDateShort ( iso )
-            {
-                // iso: YYYY-MM-DD -> D-MMM-YY
-                try
+                function setMonthLabel ( dt )
                 {
-                    const parts = ( iso || '' ).split( '-' );
-                    if ( parts.length !== 3 ) return iso;
-                    const y = parts[ 0 ].slice( 2 );
-                    const m = parseInt( parts[ 1 ], 10 );
-                    const d = parseInt( parts[ 2 ], 10 );
-                    const months = [ 'Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec' ];
-                    return `${ d }-${ months[ m - 1 ] }-${ y }`;
-                } catch ( e ) { return iso; }
-            }
+                    const months = [ 'January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December' ];
+                    document.getElementById( 'month-label' ).textContent = months[ dt.getMonth() ] + ' ' + dt.getFullYear();
+                }
 
-            function formatTimeShort ( time )
-            {
-                // HH:mm:ss -> h:mm A (basic)
-                if ( !time ) return '';
-                try
+                // Helper to format nice date for modal title
+                function formatDateFriendly ( iso )
                 {
-                    const [ hh, mm, ss ] = ( time || '' ).split( ':' ).map( x => parseInt( x, 10 ) );
-                    if ( isNaN( hh ) ) return time;
-                    const ampm = hh >= 12 ? 'PM' : 'AM';
-                    const h = ( ( hh + 11 ) % 12 ) + 1;
-                    return `${ h }:${ ( mm || 0 ).toString().padStart( 2, '0' ) } ${ ampm }`;
-                } catch ( e ) { return time; }
-            }
+                    if ( !iso ) return '';
+                    const d = new Date( iso );
+                    return d.toLocaleDateString( 'en-US', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' } );
+                }
 
-            async function loadCalendar ()
-            {
-                const year = cur.getFullYear();
-                const month = cur.getMonth() + 1; // 1-based
-                const username = selUser || '';
-                const loadingEl = document.getElementById( 'calendar-loading' );
-                const container = document.getElementById( 'calendar' );
-                try
+                async function loadCalendar ()
                 {
+                    const year = cur.getFullYear();
+                    const month = cur.getMonth() + 1;
+                    const username = selUser || '';
+
+                    const loadingEl = document.getElementById( 'calendar-loading' );
+                    const container = document.getElementById( 'calendar' );
+
                     loadingEl.style.display = 'block';
-                    container.style.opacity = '0.4';
-                    const res = await fetch( `/visual/data?username=${ encodeURIComponent( username ) }&year=${ year }&month=${ month }` );
-                    if ( !res.ok ) { const t = await res.text().catch( () => null ); showAppModal( t || 'Could not load calendar', 'error' ); return; }
-                    const payload = await res.json();
-                    if ( !payload || !Array.isArray( payload.days ) ) { showAppModal( 'Could not load calendar', 'error' ); return; }
-                    renderCalendar( payload.days, payload.year, payload.month );
-                } catch ( e ) { console.error( e ); showAppModal( 'Could not load calendar', 'error' ); }
-                finally { loadingEl.style.display = 'none'; container.style.opacity = ''; }
-            }
+                    container.style.display = 'none';
 
-            function renderCalendar ( days, year, month )
-            {
-                setMonthLabel( new Date( year, month - 1, 1 ) );
-                const cal = document.getElementById( 'calendar' ); cal.innerHTML = '';
-                // compute start weekday and days in month
-                const first = new Date( year, month - 1, 1 );
-                // start week on Monday
-                const startDow = ( first.getDay() + 6 ) % 7;
-                const daysInMonth = new Date( year, month, 0 ).getDate();
-
-                // fill blanks before
-                for ( let i = 0; i < startDow; i++ ) { const el = document.createElement( 'div' ); el.className = 'day'; el.innerHTML = ''; cal.appendChild( el ); }
-
-                for ( let d = 1; d <= daysInMonth; d++ )
-                {
-                    const dateStr = `${ year }-${ pad( month ) }-${ pad( d ) }`;
-                    const info = days.find( x => x.date === dateStr ) || { date: dateStr, status: 'absent' };
-                    const el = document.createElement( 'div' ); el.className = 'day';
-                    const cls = info.status;
-                    if ( cls === 'present' ) el.style.background = '#1976d2', el.style.color = '#fff';
-                    else if ( cls === 'leave' ) el.style.background = '#7e57c2', el.style.color = '#fff';
-                    else if ( cls === 'holiday' ) el.style.background = '#66bb6a', el.style.color = '#fff';
-                    else if ( cls === 'ad_hoc' ) el.style.background = '#ffb74d', el.style.color = '#000';
-                    else if ( cls === 'weekly' ) el.style.background = '#efefef', el.style.color = '#000';
-                    else if ( cls === 'absent' ) { el.classList.add( 'status-absent' ); }
-
-                    el.innerHTML = `<div class="date">${ d }</div><div style="padding-top:18px">${ info.summary || '' }</div>`;
-                    el.title = `${ formatDateShort( dateStr ) } — ${ ( info.title || info.summary || info.status ) }`;
-                    el.addEventListener( 'click', () =>
+                    try
                     {
-                        const body = [];
-                        function capitalize ( s ) { if ( !s ) return s; return s.charAt( 0 ).toUpperCase() + s.slice( 1 ); }
-                        body.push( `${ formatDateShort( dateStr ) } — ${ capitalize( info.status ) }` );
-                        if ( info.in_time ) body.push( 'In: ' + formatTimeShort( info.in_time ) );
-                        if ( info.out_time ) body.push( 'Out: ' + formatTimeShort( info.out_time ) );
-                        if ( info.holiday_name ) body.push( 'Holiday: ' + info.holiday_name );
-                        if ( info.adhoc_reason ) body.push( 'Ad-hoc: ' + info.adhoc_reason );
-                        if ( info.leave && info.leave.status ) body.push( 'Leave: ' + capitalize( info.leave.status ) + ' — ' + ( info.leave.reason || '' ) );
-                        showAppModal( body.join( '\n' ), '' );
-                    } );
-                    cal.appendChild( el );
-                }
-            }
+                        const res = await fetch( `/visual/data?username=${ encodeURIComponent( username ) }&year=${ year }&month=${ month }` );
+                        if ( !res.ok ) throw new Error( 'Failed to load' );
 
-            window.addEventListener( 'load', async () =>
-            {
-                // init users selector if allowed
-                const users = await fetchUsersIfAllowed();
-                const sel = document.getElementById( 'user-select' );
-                const meRes = await fetch( '/user/me' );
-                if ( meRes.ok )
-                {
-                    const me = await meRes.json();
-                    // default to self
-                    selUser = me.name;
-                }
-                if ( users && Array.isArray( users ) )
-                {
-                    sel.innerHTML = '';
-                    // exclude owner accounts from the selector (owners do not mark attendance)
-                    const filtered = users.filter( u => ( u && u.role ) ? u.role !== 'owner' : true );
-                    filtered.forEach( u => { const opt = document.createElement( 'option' ); opt.value = u.name; opt.textContent = u.name; sel.appendChild( opt ); } );
+                        const payload = await res.json();
+                        renderCalendar( payload.days, payload.year, payload.month );
 
-                    // If there are no selectable users (rare), hide the selector
-                    if ( sel.options.length === 0 )
+                        container.style.display = 'grid';
+                    } catch ( e )
                     {
-                        sel.style.display = 'none';
-                    } else
+                        console.error( e );
+                        // Use global modal if available, else alert
+                        if ( window.showAppModal ) showAppModal( 'Could not load calendar data.', 'error' );
+                    } finally
                     {
-                        // set default: prefer selUser only if it's present in the options, otherwise pick the first option
-                        const hasSelUser = Array.from( sel.options ).some( o => o.value === selUser );
-                        sel.value = hasSelUser ? selUser : sel.options[ 0 ].value;
-                        // ensure selUser reflects the actual selected option (important for initial load)
-                        selUser = sel.value;
-                        sel.addEventListener( 'change', () => { selUser = sel.value; loadCalendar(); } );
+                        loadingEl.style.display = 'none';
                     }
-                } else
-                {
-                    // hide selector
-                    sel.style.display = 'none';
                 }
 
-                document.getElementById( 'prev-month' ).addEventListener( 'click', () => { cur.setMonth( cur.getMonth() - 1 ); loadCalendar(); } );
-                document.getElementById( 'next-month' ).addEventListener( 'click', () => { cur.setMonth( cur.getMonth() + 1 ); loadCalendar(); } );
-                document.getElementById( 'today-btn' ).addEventListener( 'click', () => { cur = new Date(); loadCalendar(); } );
+                function renderCalendar ( days, year, month )
+                {
+                    setMonthLabel( new Date( year, month - 1, 1 ) );
+                    const cal = document.getElementById( 'calendar' );
+                    cal.innerHTML = '';
 
-                loadCalendar();
-            } );
-        </script>
+                    const first = new Date( year, month - 1, 1 );
+                    // Calculate blank days (Monday start: Mon=1...Sun=0 adjustment)
+                    let startDow = first.getDay();
+                    if ( startDow === 0 ) startDow = 7; // Convert Sun(0) to 7
+                    startDow -= 1; // Now Mon=0, Sun=6
+
+                    const daysInMonth = new Date( year, month, 0 ).getDate();
+
+                    // 1. Render blank slots
+                    for ( let i = 0; i < startDow; i++ )
+                    {
+                        const el = document.createElement( 'div' );
+                        el.className = 'cal-day empty';
+                        cal.appendChild( el );
+                    }
+
+                    // 2. Render actual days
+                    for ( let d = 1; d <= daysInMonth; d++ )
+                    {
+                        const dateStr = `${ year }-${ pad( month ) }-${ pad( d ) }`;
+                        // Find status for this day
+                        const info = days.find( x => x.date === dateStr ) || { date: dateStr, status: 'absent' };
+
+                        const el = document.createElement( 'div' );
+                        el.className = `cal-day cal-status-${ info.status }`;
+                        el.textContent = d; // Just the number, clean and simple
+
+                        // Interaction
+                        el.addEventListener( 'click', () =>
+                        {
+                            const title = formatDateFriendly( dateStr );
+                            const body = [];
+
+                            // Build details list
+                            const statusPretty = info.status.charAt( 0 ).toUpperCase() + info.status.slice( 1 ).replace( '_', ' ' );
+                            body.push( `<strong>Status:</strong> ${ statusPretty }` );
+
+                            if ( info.in_time ) body.push( `<strong>In:</strong> ${ info.in_time }` );
+                            if ( info.out_time ) body.push( `<strong>Out:</strong> ${ info.out_time }` );
+                            if ( info.total_time ) body.push( `<strong>Total:</strong> ${ info.total_time }` );
+
+                            if ( info.leave ) body.push( `<strong>Leave Reason:</strong> ${ info.leave.reason || 'N/A' }` );
+                            if ( info.holiday_name ) body.push( `<strong>Holiday:</strong> ${ info.holiday_name }` );
+                            if ( info.adhoc_reason ) body.push( `<strong>Note:</strong> ${ info.adhoc_reason }` );
+
+                            // Use global modal
+                            if ( window.showAppModal )
+                            {
+                                // We can pass HTML to the modal if we join with <br>
+                                // But our basic modal expects text. Let's format it simply for now.
+                                // If you want HTML support, we'd update ui.js, but newline works for basic alerts.
+                                showAppModal( `${ title }\n\n${ body.map( l => l.replace( /<strong>|<\/strong>/g, '' ) ).join( '\n' ) }`, 'info' );
+                            }
+                        } );
+
+                        cal.appendChild( el );
+                    }
+                }
+
+                window.addEventListener( 'load', async () =>
+                {
+                    // Determine current user
+                    const meRes = await fetch( '/user/me' );
+                    if ( meRes.ok )
+                    {
+                        const me = await meRes.json();
+                        selUser = me.name;
+                    }
+
+                    // Setup User Selector (Manager/Owner only)
+                    const users = await fetchUsersIfAllowed();
+                    const selContainer = document.getElementById( 'user-select-container' );
+                    const sel = document.getElementById( 'user-select' );
+
+                    if ( users && Array.isArray( users ) && users.length > 0 )
+                    {
+                        const filtered = users.filter( u => u.role !== 'owner' );
+
+                        if ( filtered.length > 0 )
+                        {
+                            selContainer.style.display = 'block';
+                            sel.innerHTML = '';
+                            filtered.forEach( u =>
+                            {
+                                const opt = document.createElement( 'option' );
+                                opt.value = u.name;
+                                opt.textContent = u.name; // Removed role for cleaner mobile view
+                                sel.appendChild( opt );
+                            } );
+
+                            // Set dropdown to current user if possible
+                            if ( sel.querySelector( `option[value="${ selUser }"]` ) )
+                            {
+                                sel.value = selUser;
+                            } else
+                            {
+                                selUser = sel.value; // Default to first available
+                            }
+
+                            sel.addEventListener( 'change', () =>
+                            {
+                                selUser = sel.value;
+                                loadCalendar();
+                            } );
+                        }
+                    }
+
+                    // Event Listeners
+                    document.getElementById( 'prev-month' ).addEventListener( 'click', () =>
+                    {
+                        cur.setMonth( cur.getMonth() - 1 );
+                        loadCalendar();
+                    } );
+                    document.getElementById( 'next-month' ).addEventListener( 'click', () =>
+                    {
+                        cur.setMonth( cur.getMonth() + 1 );
+                        loadCalendar();
+                    } );
+                    document.getElementById( 'today-btn' ).addEventListener( 'click', () =>
+                    {
+                        cur = new Date();
+                        loadCalendar();
+                    } );
+
+                    // Initial Load
+                    loadCalendar();
+                } );
+            </script>
     </body>
 
 </html>
