@@ -197,17 +197,17 @@ table
 {
     width: 100%;
     border-collapse: collapse;
-    font-size: 0.9rem;
-    background: #fff;
+    font-size: 0.8rem;
 }
 
 th,
 td
 {
-    padding: 10px 12px;
+    padding: 8px 6px;
     border-bottom: 1px solid var(--border);
     text-align: left;
     vertical-align: middle;
+    font-size: 0.8rem;
 }
 
 th

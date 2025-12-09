@@ -46,7 +46,7 @@
                 <label for="test-date-input">Test Date</label>
                 <input type="date" id="test-date-input">
                 <button id="set-test-date"><i class="fas fa-flask"></i> Enable Testing</button>
-                <button id="clear-test-date"><i class="fas fa-redo"></i> Back to Normal</button>
+                <button id="clear-test-date" style="margin-top:8px"><i class="fas fa-redo"></i> Back to Normal</button>
                 <div id="current-test-date" class="small" style="margin-top:8px"></div>
             </div>
 
@@ -64,10 +64,10 @@
                 <div id="adhoc-list">
                     <p><i class="fas fa-spinner fa-spin"></i> Loading special days off...</p>
                 </div>
-                <div class="small">Note: Add these at least one day in advance.</div>
+                <div class="small" style="margin-top:8px">Note: Add these at least one day in advance.</div>
             </div>
 
-            <div class="section">
+            <div class="section" style="margin-top:16px">
                 <h2><i class="fas fa-gift"></i> Company Holidays</h2>
                 <form id="add-holiday-form">
                     <label for="holiday-date"><i class="fas fa-calendar-day"></i> Date</label>
@@ -83,7 +83,7 @@
                 <div id="holiday-list">
                     <p><i class="fas fa-spinner fa-spin"></i> Loading holidays...</p>
                 </div>
-                <div class="small">Add one-time events or holidays that repeat annually.
+                <div class="small" style="margin-top:8px">Add one-time events or holidays that repeat annually.
                 </div>
             </div>
 
@@ -226,7 +226,7 @@
                         {
                             const row = document.createElement( 'div' );
                             row.className = 'card list-row';
-                            row.innerHTML = `<div>${ formatDatePretty( a.date ) } — ${ a.reason || '' }</div><div style="text-align:right"><button data-id="${ a.id }" class="remove-adhoc">Remove</button></div>`;
+                            row.innerHTML = `<div>${ formatDatePretty( a.date ) } — ${ a.reason || '' }</div><div style="text-align:right"><button data-id="${ a.id }" class="remove-adhoc" title="Remove" style="padding:6px 10px;min-width:auto;background:#f44336;border-color:#f44336"><i class="fas fa-trash"></i></button></div>`;
                             adhocList.appendChild( row );
                         } );
                     } else
@@ -247,7 +247,7 @@
                             if ( h.date ) display = `${ formatDatePretty( h.date ) }`;
                             else if ( h.month_day ) display = `${ formatMonthDayPretty( h.month_day ) } (recurring)`;
                             else display = 'Unknown date';
-                            row.innerHTML = `<div>${ display } — ${ h.name }</div><div style="text-align:right"><button data-id="${ h.id }" class="remove-holiday">Remove</button></div>`;
+                            row.innerHTML = `<div>${ display } — ${ h.name }</div><div style="text-align:right"><button data-id="${ h.id }" class="remove-holiday" title="Remove" style="padding:6px 10px;min-width:auto;background:#f44336;border-color:#f44336"><i class="fas fa-trash"></i></button></div>`;
                             holList.appendChild( row );
                         } );
                     } else

@@ -103,8 +103,14 @@
                 function formatDateFriendly ( iso )
                 {
                     if ( !iso ) return '';
-                    const d = new Date( iso );
-                    return d.toLocaleDateString( 'en-US', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' } );
+                    const d = new Date( iso + 'T00:00:00' );
+                    const months = [ 'Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec' ];
+                    const days = [ 'Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday' ];
+                    const dayName = days[ d.getDay() ];
+                    const day = d.getDate();
+                    const month = months[ d.getMonth() ];
+                    const year = String( d.getFullYear() ).slice( -2 );
+                    return `${ dayName }, ${ day }-${ month }-${ year }`;
                 }
 
                 async function loadCalendar ()
@@ -180,15 +186,15 @@
 
                             // Build details list
                             const statusPretty = info.status.charAt( 0 ).toUpperCase() + info.status.slice( 1 ).replace( '_', ' ' );
-                            body.push( `<strong>Status:</strong> ${ statusPretty }` );
+                            body.push( `Status: ${ statusPretty }` );
 
-                            if ( info.in_time ) body.push( `<strong>In:</strong> ${ info.in_time }` );
-                            if ( info.out_time ) body.push( `<strong>Out:</strong> ${ info.out_time }` );
-                            if ( info.total_time ) body.push( `<strong>Total:</strong> ${ info.total_time }` );
+                            if ( info.in_time ) body.push( `In: ${ info.in_time }` );
+                            if ( info.out_time ) body.push( `Out: ${ info.out_time }` );
+                            if ( info.total_time ) body.push( `Total: ${ info.total_time }` );
 
-                            if ( info.leave ) body.push( `<strong>Leave Reason:</strong> ${ info.leave.reason || 'N/A' }` );
-                            if ( info.holiday_name ) body.push( `<strong>Holiday:</strong> ${ info.holiday_name }` );
-                            if ( info.adhoc_reason ) body.push( `<strong>Note:</strong> ${ info.adhoc_reason }` );
+                            if ( info.leave ) body.push( `Reason: ${ info.leave.reason || 'N/A' }` );
+                            if ( info.holiday_name ) body.push( `${ info.holiday_name }` );
+                            if ( info.adhoc_reason ) body.push( `${ info.adhoc_reason }` );
 
                             // Use global modal
                             if ( window.showAppModal )

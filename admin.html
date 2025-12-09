@@ -70,17 +70,17 @@
                 <form id="add-user-form">
                     <label for="new-username"><i class="fas fa-user"></i> Username:</label>
                     <input type="text" id="new-username" name="name" required pattern="[A-Za-z0-9_]+">
-                    <br><br>
+                    <br>
                     <label for="new-password"><i class="fas fa-key"></i> Password (optional, default 111):</label>
                     <input type="password" id="new-password" name="password" placeholder="111">
-                    <br><br>
+                    <br>
                     <label for="new-role"><i class="fas fa-user-tag"></i> Role:</label>
                     <select id="new-role" name="role">
                         <option value="employee">Employee</option>
                         <option value="manager">Manager</option>
                         <option value="owner">Owner</option>
                     </select>
-                    <br><br>
+                    <br>
                     <button type="submit"><i class="fas fa-user-plus"></i> Add Member</button>
                 </form>
                 <hr>
@@ -92,10 +92,10 @@
                         <option value="">-- Choose a team member... --</option>
                         <!-- specific users will be appended here -->
                     </select>
-                    <br><br>
+                    <br>
                     <label for="reset-password">New password (optional, default 111):</label>
                     <input type="password" id="reset-password" name="password" placeholder="111">
-                    <br><br>
+                    <br>
                     <button type="submit"><i class="fas fa-key"></i> Reset Password</button>
                 </form>
                 <hr>
@@ -314,7 +314,7 @@
                     const canAct = isPending && !isWithdrawn && !managerRestricted;
                     if ( canAct )
                     {
-                        actionHtml = `<button class="approve-btn" onclick="handleLeaveAction(${ leave.leave_id }, 'approved')"><i class="fas fa-check-circle"></i> Approve</button> <button class="reject-btn" onclick="handleLeaveAction(${ leave.leave_id }, 'rejected')"><i class="fas fa-times-circle"></i> Decline</button>`;
+                        actionHtml = `<button class="approve-btn" onclick="handleLeaveAction(${ leave.leave_id }, 'approved')" title="Approve" style="padding:6px 10px;min-width:auto"><i class="fas fa-check-circle"></i></button> <button class="reject-btn" onclick="handleLeaveAction(${ leave.leave_id }, 'rejected')" title="Decline" style="padding:6px 10px;min-width:auto"><i class="fas fa-times-circle"></i></button>`;
                     }
 
                     tr.innerHTML = `

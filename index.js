@@ -832,8 +832,9 @@ app.get( '/visual/data', requireLogin, async ( req, res ) =>
             days.push( {
                 date,
                 status,
-                in_time: att && att.in_time ? att.in_time : null,
-                out_time: att && att.out_time ? att.out_time : null,
+                in_time: att && att.in_time ? formatTimeForDisplay( date, att.in_time ) : null,
+                out_time: att && att.out_time ? formatTimeForDisplay( date, att.out_time ) : null,
+                total_time: att ? computeTotalTimeForRow( att ) : null,
                 holiday_name: holiday_name || null,
                 adhoc_reason: adhoc_reason || null,
                 leave: leave ? { leave_id: leave.leave_id, status: leave.status, reason: leave.reason } : null
@@ -1367,13 +1368,38 @@ app.post( '/admin/settings/app/ad-hoc/add', requireOwner, ( req, res ) =>
     if ( !m.isValid() ) return res.status( 400 ).json( { success: false, message: 'Date must be in YYYY-MM-DD format.' } );
     // must be at least one day ahead
     if ( !m.isAfter( moment(), 'day' ) ) return res.status( 400 ).json( { success: false, message: 'Ad-hoc off must be declared at least one day before.' } );
-    const r = ( reason || '' ).toString().substring( 0, 250 );
-    const ts = new Date().toISOString();
-    db.run( 'INSERT OR REPLACE INTO ad_hoc_offs (date, reason, created_by, created_at) VALUES (?, ?, ?, ?)', [ date, r, req.session.user.name, ts ], function ( err )
+
+    // Check if date is already a weekly off
+    db.get( 'SELECT value FROM settings WHERE name = ?', [ 'weekly_off_mode' ], ( err, row ) =>
     {
         if ( err ) return res.status( 500 ).json( { success: false, message: err.message } );
-        console.log( `${ req.session.user.name } declared ad-hoc off on ${ formatDateForDisplay( date ) }${ r ? ` — reason: ${ r }` : '' }` );
-        return res.json( { success: true } );
+        const mode = row && row.value ? row.value : '1';
+        const dow = m.day(); // 0=Sunday, 6=Saturday
+
+        let isWeeklyOff = false;
+        if ( dow === 0 ) isWeeklyOff = true; // All Sundays
+        else if ( dow === 6 )
+        {
+            const dom = m.date();
+            const weekOfMonth = Math.floor( ( dom - 1 ) / 7 ) + 1;
+            if ( mode === '2' ) isWeeklyOff = true; // All Saturdays
+            else if ( mode === '3' && ( weekOfMonth === 2 || weekOfMonth === 4 ) ) isWeeklyOff = true; // 2nd & 4th Saturdays
+            else if ( mode === '4' && ( weekOfMonth % 2 === 1 ) ) isWeeklyOff = true; // 1st, 3rd, 5th Saturdays
+        }
+
+        if ( isWeeklyOff )
+        {
+            return res.status( 400 ).json( { success: false, message: 'This date is already a weekly off. No need to add it as a special day off.' } );
+        }
+
+        const r = ( reason || '' ).toString().substring( 0, 250 );
+        const ts = new Date().toISOString();
+        db.run( 'INSERT OR REPLACE INTO ad_hoc_offs (date, reason, created_by, created_at) VALUES (?, ?, ?, ?)', [ date, r, req.session.user.name, ts ], function ( err )
+        {
+            if ( err ) return res.status( 500 ).json( { success: false, message: err.message } );
+            console.log( `${ req.session.user.name } declared ad-hoc off on ${ formatDateForDisplay( date ) }${ r ? ` — reason: ${ r }` : '' }` );
+            return res.json( { success: true } );
+        } );
     } );
 } );
 
@@ -1405,39 +1431,66 @@ app.post( '/admin/settings/app/holidays/add', requireOwner, ( req, res ) =>
 
     let insertMonthDay = null;
     let insertDate = null;
+    let checkDate = null;
 
     if ( date )
     {
         // full date provided (YYYY-MM-DD)
         if ( !moment( date, 'YYYY-MM-DD', true ).isValid() ) return res.status( 400 ).json( { success: false, message: 'date must be YYYY-MM-DD.' } );
         insertDate = date;
+        checkDate = moment( date, 'YYYY-MM-DD' );
         // also populate month_day for convenience
-        const m = moment( date, 'YYYY-MM-DD' );
-        insertMonthDay = m.format( 'MM-DD' );
+        insertMonthDay = checkDate.format( 'MM-DD' );
     } else if ( month_day )
     {
         if ( !/^[0-1][0-9]-[0-3][0-9]$/.test( month_day ) ) return res.status( 400 ).json( { success: false, message: 'month_day must be MM-DD.' } );
         insertMonthDay = month_day;
+        // For recurring, check current year's occurrence
+        checkDate = moment( `${ moment().year() }-${ month_day }`, 'YYYY-MM-DD' );
     } else
     {
         return res.status( 400 ).json( { success: false, message: 'Provide either `date` (YYYY-MM-DD) or `month_day` (MM-DD).' } );
     }
 
-    db.run( 'INSERT INTO holidays (name, month_day, date) VALUES (?, ?, ?)', [ name.toString().substring( 0, 100 ), insertMonthDay, insertDate ], function ( err )
+    // Check if the date falls on a weekly off
+    db.get( 'SELECT value FROM settings WHERE name = ?', [ 'weekly_off_mode' ], ( err, row ) =>
     {
         if ( err ) return res.status( 500 ).json( { success: false, message: err.message } );
-        let dateText = '';
-        if ( insertDate ) dateText = formatDateForDisplay( insertDate );
-        else
+        const mode = row && row.value ? row.value : '1';
+        const dow = checkDate.day(); // 0=Sunday, 6=Saturday
+
+        let isWeeklyOff = false;
+        if ( dow === 0 ) isWeeklyOff = true; // All Sundays
+        else if ( dow === 6 )
         {
-            try
-            {
-                const m = moment( insertMonthDay, 'MM-DD', true );
-                dateText = `recurring on ${ m.isValid() ? m.format( 'D-MMM' ) : insertMonthDay }`;
-            } catch ( e ) { dateText = `recurring on ${ insertMonthDay }`; }
+            const dom = checkDate.date();
+            const weekOfMonth = Math.floor( ( dom - 1 ) / 7 ) + 1;
+            if ( mode === '2' ) isWeeklyOff = true; // All Saturdays
+            else if ( mode === '3' && ( weekOfMonth === 2 || weekOfMonth === 4 ) ) isWeeklyOff = true; // 2nd & 4th Saturdays
+            else if ( mode === '4' && ( weekOfMonth % 2 === 1 ) ) isWeeklyOff = true; // 1st, 3rd, 5th Saturdays
         }
-        console.log( `${ req.session.user.name } added holiday '${ name }' — ${ dateText }` );
-        return res.json( { success: true } );
+
+        if ( isWeeklyOff )
+        {
+            return res.status( 400 ).json( { success: false, message: 'This date falls on a weekly off. No need to add it as a holiday.' } );
+        }
+
+        db.run( 'INSERT INTO holidays (name, month_day, date) VALUES (?, ?, ?)', [ name.toString().substring( 0, 100 ), insertMonthDay, insertDate ], function ( err )
+        {
+            if ( err ) return res.status( 500 ).json( { success: false, message: err.message } );
+            let dateText = '';
+            if ( insertDate ) dateText = formatDateForDisplay( insertDate );
+            else
+            {
+                try
+                {
+                    const m = moment( insertMonthDay, 'MM-DD', true );
+                    dateText = `recurring on ${ m.isValid() ? m.format( 'D-MMM' ) : insertMonthDay }`;
+                } catch ( e ) { dateText = `recurring on ${ insertMonthDay }`; }
+            }
+            console.log( `${ req.session.user.name } added holiday '${ name }' — ${ dateText }` );
+            return res.json( { success: true } );
+        } );
     } );
 } );
 

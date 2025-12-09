@@ -621,7 +621,7 @@
                     let actionHtml = '';
                     if ( leave.status === 'pending' && !leave.taken_back )
                     {
-                        actionHtml = `<button class="takeback-button" data-id="${ leave.leave_id }"><i class="fas fa-undo"></i> Withdraw</button>`;
+                        actionHtml = `<button class="takeback-button" data-id="${ leave.leave_id }" title="Withdraw" style="padding:6px 10px;min-width:auto;background:#ff9800;border-color:#ff9800"><i class="fas fa-undo"></i></button>`;
                     }
 
                     tr.innerHTML = `
