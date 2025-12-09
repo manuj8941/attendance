@@ -172,3 +172,22 @@
     document.cookie = `device_type=${ encodeURIComponent( isMobile ) }; path=/`;
   } catch ( e ) { /* silent fallback */ }
 } )();
+
+// --- Global Date Picker Initialization ---
+document.addEventListener( 'DOMContentLoaded', function ()
+{
+  // Check if the flatpickr library is loaded on this page
+  if ( typeof flatpickr !== 'undefined' )
+  {
+    flatpickr( "input[type=date]", {
+      locale: {
+        firstDayOfWeek: 1 // Start week on Monday
+      },
+      disableMobile: true,  // Force custom picker on mobile
+      dateFormat: "Y-m-d",  // Format for Database (2025-12-06)
+      altInput: true,       // Enable friendly display
+      altFormat: "j-M-y",   // User sees: 6-Dec-25
+      allowInput: true      // Allow manual typing
+    } );
+  }
+} );
