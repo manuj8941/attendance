@@ -9,6 +9,7 @@
         <link rel="stylesheet" href="/css/mobile.css">
         <link rel="stylesheet" href="/css/flatpickr.min.css">
         <link rel="stylesheet" href="/css/airbnb.css">
+        <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css">
     </head>
 
     <body>
@@ -17,19 +18,21 @@
         <!-- Global app modal is injected by /js/ui.js -->
 
         <div class="container">
-            <h1>Dashboard</h1>
-            <p>Welcome, <strong id="user-name"></strong>! | <a href="/visual">My Calendar</a> | <a
-                    href="/profile">Change Password</a> | <a href="/logout">Logout</a><span
-                    id="admin-link-container"></span></p>
+            <h1><i class="fas fa-th-large"></i> Dashboard</h1>
+            <p>Welcome, <strong id="user-name"></strong>! | <a href="/visual"><i class="fas fa-calendar-alt"></i> My
+                    Calendar</a> | <a href="/profile"><i class="fas fa-user-circle"></i> Profile</a> | <a
+                    href="/logout"><i class="fas fa-sign-out-alt"></i> Logout</a><span id="admin-link-container"></span>
+            </p>
 
             <!-- Attendance Marking Section -->
             <div class="section" id="attendance-section">
-                <h2>Mark Attendance</h2>
+                <h2><i class="fas fa-clock"></i> Your Daily Check-In</h2>
                 <div id="loading-message">
-                    <p>Loading location, camera, and attendance status...</p>
+                    <p><i class="fas fa-spinner fa-spin"></i> Getting things ready for you...</p>
                 </div>
                 <div id="permission-denied-message" style="display: none;">
-                    <p>Location and camera access are required. Please enable permissions and refresh.</p>
+                    <p><i class="fas fa-exclamation-triangle"></i> We need your camera and location to verify your
+                        check-in. Please allow access and try again. 📍📷</p>
                 </div>
                 <div id="day-complete-message" style="display: none;">
                     <p id="attendance-notice" aria-live="polite"
@@ -47,28 +50,28 @@
 
             <!-- Leave Management Section -->
             <div class="section">
-                <h2>Leave Management</h2>
+                <h2><i class="fas fa-umbrella-beach"></i> Time Off Requests</h2>
                 <div>
-                    <h3>Your Leave Balance</h3>
-                    <p>Current Balance: <strong id="leave-balance">Loading...</strong></p>
+                    <h3>Your Available Days Off</h3>
+                    <p>You have <strong id="leave-balance">Loading...</strong> days</p>
                 </div>
                 <hr>
                 <form id="leave-application-form" action="/leaves/apply" method="post">
-                    <h3>Apply for Leave</h3>
-                    <label for="start_date">Start Date:</label>
+                    <h3>Request Time Off</h3>
+                    <label for="start_date"><i class="fas fa-calendar-day"></i> Start Date:</label>
                     <input type="date" id="start_date" name="start_date" required>
                     <br><br>
-                    <label for="end_date">End Date:</label>
+                    <label for="end_date"><i class="fas fa-calendar-day"></i> End Date:</label>
                     <input type="date" id="end_date" name="end_date" required>
                     <br><br>
-                    <label for="reason">Reason:</label>
+                    <label for="reason"><i class="fas fa-comment"></i> Reason:</label>
                     <textarea id="reason" name="reason" rows="3" cols="40" maxlength="250" required></textarea>
                     <div style="font-size:12px;color:#666">Maximum 250 characters.</div>
                     <br><br>
-                    <button type="submit">Submit Leave Request</button>
+                    <button type="submit"><i class="fas fa-paper-plane"></i> Send Request</button>
                 </form>
                 <hr>
-                <h3>Your Leave Requests</h3>
+                <h3>My Time Off History</h3>
                 <div class="table-wrap">
                     <table>
                         <thead>
@@ -89,7 +92,7 @@
 
             <!-- Attendance Records Section -->
             <div class="section">
-                <h2>Your Attendance Records</h2>
+                <h2><i class="fas fa-history"></i> Your Check-In History</h2>
                 <div class="table-wrap">
                     <table>
                         <thead>
@@ -125,7 +128,7 @@
                 if ( currentUser.role === 'manager' || currentUser.role === 'owner' )
                 {
                     // Unified dashboard — admin UI is available at /dashboard
-                    document.getElementById( 'admin-link-container' ).innerHTML = ' | <a href="/admin">Admin Panel</a>';
+                    document.getElementById( 'admin-link-container' ).innerHTML = ' | <a href="/admin"><i class="fas fa-user-shield"></i> Admin Panel</a>';
                 }
 
                 // Load all parts of the dashboard
@@ -158,9 +161,9 @@
                 // Helper to set the 'open camera' caption according to the pending action
                 function setOpenCaption ()
                 {
-                    if ( pendingAction === '/mark-in' ) actionButton.textContent = 'Open camera to Mark In';
-                    else if ( pendingAction === '/mark-out' ) actionButton.textContent = 'Open camera to Mark Out';
-                    else actionButton.textContent = 'Open Camera';
+                    if ( pendingAction === '/mark-in' ) actionButton.innerHTML = '<i class="fas fa-camera"></i> Ready to Check In?';
+                    else if ( pendingAction === '/mark-out' ) actionButton.innerHTML = '<i class="fas fa-camera"></i> Time to Check Out?';
+                    else actionButton.innerHTML = '<i class="fas fa-camera"></i> Open Camera';
                 }
 
                 setOpenCaption();
@@ -186,7 +189,7 @@
 
                         // Show loading feedback
                         actionButton.disabled = true;
-                        actionButton.textContent = 'Opening camera...';
+                        actionButton.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Opening camera...';
 
                         video.style.display = 'block';
                         const s = await navigator.mediaDevices.getUserMedia( {
@@ -219,8 +222,8 @@
 
                         // Re-enable button and update text
                         actionButton.disabled = false;
-                        if ( pendingAction === '/mark-in' ) actionButton.textContent = 'Mark In';
-                        else if ( pendingAction === '/mark-out' ) actionButton.textContent = 'Mark Out';
+                        if ( pendingAction === '/mark-in' ) actionButton.innerHTML = '<i class="fas fa-check-circle"></i> Check In';
+                        else if ( pendingAction === '/mark-out' ) actionButton.innerHTML = '<i class="fas fa-sign-out-alt"></i> Check Out';
 
                         resetIdleTimer();
                     } catch ( e )
@@ -228,7 +231,7 @@
                         console.error( 'Could not open camera', e );
                         actionButton.disabled = false;
                         setOpenCaption();
-                        showModal( 'Unable to access camera. Please check permissions and try again.', 'error' );
+                        showModal( 'We can\'t access your camera. Please allow camera access in your browser settings.', 'error' );
                     }
                 }
 
@@ -246,8 +249,8 @@
                         video.srcObject = null;
                         video.style.display = 'none';
                         // Reset action button caption to the 'open camera' instruction for the pending action
-                        if ( pendingAction === '/mark-in' ) actionButton.textContent = 'Open camera to Mark In';
-                        else if ( pendingAction === '/mark-out' ) actionButton.textContent = 'Open camera to Mark Out';
+                        if ( pendingAction === '/mark-in' ) actionButton.innerHTML = '<i class="fas fa-camera"></i> Ready to Check In?';
+                        else if ( pendingAction === '/mark-out' ) actionButton.innerHTML = '<i class="fas fa-camera"></i> Time to Check Out?';
                     } catch ( e ) { console.error( 'Error stopping stream', e ); }
                 }
 
@@ -316,7 +319,7 @@
                 if ( status === 'marked_out' )
                 {
                     loadingMessage.style.display = 'none';
-                    if ( noticeEl ) noticeEl.textContent = 'Your attendance for today is complete.';
+                    if ( noticeEl ) noticeEl.innerHTML = '<i class="fas fa-check-circle" style="color:#16a34a"></i> All done for today! 🎉 Great job!';
                     dayCompleteMessage.style.display = 'block';
                     form.style.display = 'none';
                     video.style.display = 'none';
@@ -331,7 +334,7 @@
                 if ( status === 'off' )
                 {
                     loadingMessage.style.display = 'none';
-                    if ( noticeEl ) noticeEl.textContent = offMessage || 'Attendance is not required today.';
+                    if ( noticeEl ) noticeEl.innerHTML = '<i class="fas fa-calendar-check" style="color:#0ea5a4"></i> ' + ( offMessage || 'Enjoy your day off! 😊' );
                     dayCompleteMessage.style.display = 'block';
                     form.style.display = 'none';
                     video.style.display = 'none';
@@ -457,15 +460,15 @@
 
                         // Disable button during capture/submit
                         actionButton.disabled = true;
-                        actionButton.textContent = 'Submitting...';
+                        actionButton.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Saving your check-in...';
 
                         const dataUrl = captureFromVideo();
                         if ( !validateDataUrl( dataUrl ) )
                         {
                             actionButton.disabled = false;
-                            if ( pendingAction === '/mark-in' ) actionButton.textContent = 'Mark In';
-                            else if ( pendingAction === '/mark-out' ) actionButton.textContent = 'Mark Out';
-                            showModal( 'Captured image looks empty or too small. Please try again.', 'error' );
+                            if ( pendingAction === '/mark-in' ) actionButton.innerHTML = '<i class="fas fa-check-circle"></i> Check In';
+                            else if ( pendingAction === '/mark-out' ) actionButton.innerHTML = '<i class="fas fa-sign-out-alt"></i> Check Out';
+                            showModal( 'Hmm, that photo didn\'t come through. Let\'s try taking another one. 📷', 'error' );
                             return;
                         }
 
@@ -511,7 +514,7 @@
                                     {
                                         // Just marked out, show completion message
                                         const noticeEl = document.getElementById( 'attendance-notice' );
-                                        if ( noticeEl ) noticeEl.textContent = 'Your attendance for today is complete.';
+                                        if ( noticeEl ) noticeEl.innerHTML = '<i class="fas fa-check-circle" style="color:#16a34a"></i> All done for today! 🎉 Great job!';
                                         dayCompleteMessage.style.display = 'block';
                                         form.style.display = 'none';
                                         pendingAction = null;
@@ -535,7 +538,7 @@
                         console.error( 'Error during action button flow', err );
                         actionButton.disabled = false;
                         setOpenCaption();
-                        showModal( 'Unable to capture selfie. Please try again.', 'error' );
+                        showModal( 'We couldn\'t capture your selfie. Please try again.', 'error' );
                     }
                 } );
 
@@ -566,7 +569,7 @@
                 tbody.innerHTML = '';
                 if ( attendance.length === 0 )
                 {
-                    tbody.innerHTML = '<tr><td colspan="8">No records found.</td></tr>';
+                    tbody.innerHTML = '<tr><td colspan="8"><i class="fas fa-info-circle"></i> No check-ins yet. Your history will appear here.</td></tr>';
                     return;
                 }
                 attendance.forEach( row =>
@@ -594,7 +597,7 @@
                 tbody.innerHTML = '';
                 if ( leaves.length === 0 )
                 {
-                    tbody.innerHTML = '<tr><td colspan="6">No leave requests found.</td></tr>';
+                    tbody.innerHTML = '<tr><td colspan="6"><i class="fas fa-info-circle"></i> No time off requests yet.</td></tr>';
                     return;
                 }
                 leaves.forEach( leave =>
@@ -618,7 +621,7 @@
                     let actionHtml = '';
                     if ( leave.status === 'pending' && !leave.taken_back )
                     {
-                        actionHtml = `<button class="takeback-button" data-id="${ leave.leave_id }">Take Back</button>`;
+                        actionHtml = `<button class="takeback-button" data-id="${ leave.leave_id }"><i class="fas fa-undo"></i> Withdraw</button>`;
                     }
 
                     tr.innerHTML = `
@@ -640,8 +643,8 @@
                         const id = btn.getAttribute( 'data-id' );
                         // Use modal confirmation for consistency
                         let confirmed = false;
-                        if ( window.showAppConfirm ) confirmed = await window.showAppConfirm( 'Are you sure you want to take back this leave request?' );
-                        else confirmed = confirm( 'Are you sure you want to take back this leave request?' );
+                        if ( window.showAppConfirm ) confirmed = await window.showAppConfirm( 'Want to withdraw this request? You can reapply anytime.' );
+                        else confirmed = confirm( 'Want to withdraw this request? You can reapply anytime.' );
                         if ( !confirmed ) return;
                         try
                         {
@@ -665,7 +668,7 @@
                         } catch ( ex )
                         {
                             console.error( ex );
-                            showModal( 'An unexpected error occurred while taking back leave.', 'error', () =>
+                            showModal( 'Something went wrong while withdrawing your request. Please try again.', 'error', () =>
                             {
                                 loadLeaveHistory();
                                 loadLeaveBalance();
@@ -752,7 +755,7 @@
 
                         // Client-side: Date order check
                         if ( !start || !end ) { showModal( 'Please select both start and end dates.', 'error' ); return; }
-                        if ( new Date( start ) > new Date( end ) ) { showModal( 'Start date cannot be after end date.', 'error' ); return; }
+                        if ( new Date( start ) > new Date( end ) ) { showModal( 'Your start date should be before the end date.', 'error' ); return; }
 
                         try
                         {
@@ -779,7 +782,7 @@
                             if ( presentOverlap.length > 0 )
                             {
                                 const pretty = presentOverlap.map( d => formatIsoDateNice( d ) ).join( ', ' );
-                                showModal( `You have attendance records on these date(s): ${ pretty }. You cannot apply leave for days you were present.`, 'error' );
+                                showModal( `You were present on: ${ pretty }. You can't request time off for days you've already worked.`, 'error' );
                                 return;
                             }
 
@@ -798,7 +801,7 @@
                             } );
                             if ( overlap )
                             {
-                                showModal( 'Requested dates overlap with an existing leave request.', 'error' );
+                                showModal( 'You already have a request for these dates.', 'error' );
                                 return;
                             }
 
@@ -826,7 +829,7 @@
                         } catch ( error )
                         {
                             console.error( 'Error applying for leave:', error );
-                            showModal( 'An unexpected error occurred.', 'error' );
+                            showModal( 'Something went wrong. Please try again.', 'error' );
                         }
                     } );
                 }

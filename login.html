@@ -8,6 +8,7 @@
     <link rel="stylesheet" href="/css/mobile.css">
     <link rel="stylesheet" href="/css/flatpickr.min.css">
     <link rel="stylesheet" href="/css/airbnb.css">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css">
   </head>
 
   <body>
@@ -21,7 +22,7 @@
         <label for="password">Password</label>
         <input type="password" id="password" name="password" required>
 
-        <button type="submit">Sign in</button>
+        <button type="submit"><i class="fas fa-sign-in-alt"></i> Let's Go!</button>
       </form>
     </div>
     <script src="/js/ui.js"></script>
@@ -56,11 +57,11 @@
           {
             if ( window.showAppModal )
             {
-              showAppModal( 'Desktop access is currently disabled by the Owner. Please use a mobile device to sign in, or contact the Owner to change this setting.', 'error' );
+              showAppModal( 'Hey there! 👋 For security, please sign in from your mobile device. Contact your admin if you need desktop access.', 'error' );
             } else
             {
               const el = document.getElementById( 'login-error' );
-              el.textContent = 'Desktop access is currently disabled by the Owner. Please use a mobile device to sign in.';
+              el.textContent = 'Hey there! 👋 For security, please sign in from your mobile device. Contact your admin if you need desktop access.';
               el.style.display = 'block';
             }
           }

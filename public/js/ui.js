@@ -36,7 +36,13 @@
     const msg = document.getElementById( 'app-modal-message' );
     const ok = document.getElementById( 'app-modal-ok' );
 
-    msg.textContent = message || '';
+    // Add icon based on type
+    let icon = '';
+    if ( type === 'success' ) icon = '<i class="fas fa-check-circle" style="color:#16a34a;margin-right:8px"></i>';
+    else if ( type === 'error' ) icon = '<i class="fas fa-exclamation-triangle" style="color:#dc2626;margin-right:8px"></i>';
+    else if ( type === 'info' ) icon = '<i class="fas fa-info-circle" style="color:#0ea5a4;margin-right:8px"></i>';
+
+    msg.innerHTML = icon + ( message || '' );
     msg.className = type === 'success' ? 'status-approved' : ( type === 'error' ? 'status-rejected' : '' );
 
     // Remove all previous click handlers
@@ -134,7 +140,7 @@
       cancel.addEventListener( 'click', onCancel );
       confirmEl.addEventListener( 'click', onOverlay );
 
-      msg.textContent = message || '';
+      msg.innerHTML = '<i class="fas fa-question-circle" style="color:#0ea5a4;margin-right:8px"></i>' + ( message || '' );
       confirmEl.style.display = 'flex';
     } );
   }

@@ -8,78 +8,82 @@
         <link rel="stylesheet" href="/css/mobile.css">
         <link rel="stylesheet" href="/css/flatpickr.min.css">
         <link rel="stylesheet" href="/css/airbnb.css">
-       
-     
+        <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css">
+
+
     </head>
 
     <body>
         <div class="container">
-            <h1>App Settings</h1>
-            <p>Owner controls. <a href="/dashboard">Back</a> | <a href="/logout">Logout</a></p>
+            <h1><i class="fas fa-cog"></i> System Settings</h1>
+            <p>Manage your attendance system. <a href="/dashboard"><i class="fas fa-home"></i> Back</a> | <a
+                    href="/logout"><i class="fas fa-sign-out-alt"></i> Logout</a></p>
 
             <div class="section">
-                <h2>Desktop Access</h2>
+                <h2><i class="fas fa-desktop"></i> Desktop Access Control</h2>
                 <label style="display:inline-flex;align-items:center;gap:8px">
-                    <input type="checkbox" id="desktop-enabled"> <span>Allow Desktop Access for non-owners</span>
+                    <input type="checkbox" id="desktop-enabled"> <span>Let team members sign in from desktops</span>
                 </label>
-                <div style="margin-top:8px" class="small">Toggle whether employees/managers can sign in from desktop
-                    browsers.</div>
+                <div style="margin-top:8px" class="small">When disabled, your team can only access from mobile devices.
+                </div>
             </div>
 
             <div class="section">
-                <h2>Weekly Off Schedule</h2>
+                <h2><i class="fas fa-calendar-week"></i> Weekly Holidays</h2>
                 <select id="weekly-off-mode">
                     <option value="1">All Sundays off (default)</option>
                     <option value="2">All Sundays + All Saturdays off</option>
                     <option value="3">All Sundays + 2nd & 4th Saturdays off</option>
                 </select>
-                <div class="small" style="margin-top:8px">Choose the schedule applied across the company.</div>
-                <div style="margin-top:8px"><button id="save-weekly">Save Weekly Off</button></div>
+                <div class="small" style="margin-top:8px">Select which days your team gets off each week.</div>
+                <div style="margin-top:8px"><button id="save-weekly"><i class="fas fa-save"></i> Save Schedule</button>
+                </div>
             </div>
 
             <div class="section" id="test-date-section" style="background:#fff6f6;border:1px solid #ffd6d6;">
-                <h2>Test Date Override (Owner)</h2>
-                <p class="small">Set a permanent test date that the app will treat as "today" for all users. Leave blank
-                    to clear.</p>
+                <h2><i class="fas fa-flask"></i> Testing Mode</h2>
+                <p class="small">Simulate a different date for testing. This affects everyone in the system.</p>
                 <label for="test-date-input">Test Date</label>
-                <input type="date" id="test-date-input" >
-                <button id="set-test-date">Set Test Date</button>
-                <button id="clear-test-date">Clear Test Date</button>
+                <input type="date" id="test-date-input">
+                <button id="set-test-date"><i class="fas fa-flask"></i> Enable Testing</button>
+                <button id="clear-test-date"><i class="fas fa-redo"></i> Back to Normal</button>
                 <div id="current-test-date" class="small" style="margin-top:8px"></div>
             </div>
 
             <div class="section">
-                <h2>Ad-hoc Off Days</h2>
+                <h2><i class="fas fa-umbrella-beach"></i> Special Days Off</h2>
                 <form id="add-adhoc-form">
-                    <label for="adhoc-date">Date</label>
+                    <label for="adhoc-date"><i class="fas fa-calendar-day"></i> Date</label>
                     <input type="date" id="adhoc-date" name="date" required>
-                    <label for="adhoc-reason">Reason</label>
+                    <label for="adhoc-reason"><i class="fas fa-comment"></i> Reason</label>
                     <input type="text" id="adhoc-reason" maxlength="250" required>
-                    <div style="margin-top:8px"><button type="submit">Add Ad-hoc Off</button></div>
+                    <div style="margin-top:8px"><button type="submit"><i class="fas fa-plus-circle"></i> Add Day
+                            Off</button></div>
                 </form>
                 <hr>
                 <div id="adhoc-list">
-                    <p>Loading ad-hoc off days...</p>
+                    <p><i class="fas fa-spinner fa-spin"></i> Loading special days off...</p>
                 </div>
-                <div class="small">Ad-hoc off days must be declared at least one day before the date.</div>
+                <div class="small">Note: Add these at least one day in advance.</div>
             </div>
 
             <div class="section">
-                <h2>Yearly Celebrations (Holiday Calendar)</h2>
+                <h2><i class="fas fa-gift"></i> Company Holidays</h2>
                 <form id="add-holiday-form">
-                    <label for="holiday-date">Date</label>
+                    <label for="holiday-date"><i class="fas fa-calendar-day"></i> Date</label>
                     <input type="date" id="holiday-date" name="date" required>
-                    <label for="holiday-name">Holiday Name (e.g. Deepawali)</label>
+                    <label for="holiday-name"><i class="fas fa-star"></i> Holiday Name (e.g. Deepawali)</label>
                     <input type="text" id="holiday-name" name="name" required>
                     <label style="display:inline-flex;align-items:center;gap:8px;margin-top:6px"><input type="checkbox"
-                            id="holiday-recurring"> <span>Recurring (every year)</span></label>
-                    <div style="margin-top:8px"><button type="submit">Add Holiday</button></div>
+                            id="holiday-recurring"> <span>Repeat this holiday every year</span></label>
+                    <div style="margin-top:8px"><button type="submit"><i class="fas fa-plus-circle"></i> Add
+                            Holiday</button></div>
                 </form>
                 <hr>
                 <div id="holiday-list">
-                    <p>Loading holidays...</p>
+                    <p><i class="fas fa-spinner fa-spin"></i> Loading holidays...</p>
                 </div>
-                <div class="small">Holidays can be one-time (specific date) or recurring (same day-month every year).
+                <div class="small">Add one-time events or holidays that repeat annually.
                 </div>
             </div>
 

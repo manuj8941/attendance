@@ -8,6 +8,7 @@
         <link rel="stylesheet" href="/css/mobile.css">
         <link rel="stylesheet" href="/css/flatpickr.min.css">
         <link rel="stylesheet" href="/css/airbnb.css">
+        <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css">
 
         <style>
             /* Use global mobile.css for layout. Keep only small tweaks when needed. */
@@ -21,23 +22,24 @@
 
     <body>
         <div class="container">
-            <h1>Profile</h1>
+            <h1><i class="fas fa-user-circle"></i> My Profile</h1>
             <p>Welcome, <strong id="profile-name"></strong>! (<span id="profile-role"></span>) | <a id="back-link"
-                    href="/dashboard">Back</a> | <a href="/logout">Logout</a></p>
+                    href="/dashboard"><i class="fas fa-home"></i> Back</a> | <a href="/logout"><i
+                        class="fas fa-sign-out-alt"></i> Logout</a></p>
 
             <div class="section">
-                <h2>Change Password</h2>
+                <h2><i class="fas fa-key"></i> Update Your Password</h2>
                 <form id="profile-change-password-form">
-                    <label for="current-password">Current password:</label>
+                    <label for="current-password">Your current password</label>bel>
                     <input type="password" id="current-password" name="old_password" required>
                     <br><br>
-                    <label for="new-password">New password:</label>
+                    <label for="new-password">Choose a new password</label>
                     <input type="password" id="new-password" name="new_password" required>
                     <br><br>
-                    <label for="confirm-new-password">Confirm new password:</label>
+                    <label for="confirm-new-password">Type it again to confirm</label>
                     <input type="password" id="confirm-new-password" name="confirm_new_password" required>
                     <br><br>
-                    <button type="submit">Change Password</button>
+                    <button type="submit"><i class="fas fa-key"></i> Update Password</button>
                 </form>
             </div>
 
@@ -77,7 +79,7 @@
                 const old_password = document.getElementById( 'current-password' ).value;
                 const new_password = document.getElementById( 'new-password' ).value;
                 const confirm = document.getElementById( 'confirm-new-password' ).value;
-                if ( new_password !== confirm ) { if ( window.showAppModal ) showAppModal( 'New passwords do not match.', 'error' ); return; }
+                if ( new_password !== confirm ) { if ( window.showAppModal ) showAppModal( 'Oops! Those passwords don\'t match. Please try again.', 'error' ); return; }
                 try
                 {
                     const res = await fetch( '/user/change-password', {
@@ -86,7 +88,7 @@
                         body: JSON.stringify( { old_password, new_password } )
                     } );
                     const result = await res.json();
-                    if ( res.ok && result.success ) { if ( window.showAppModal ) showAppModal( result.message || 'Password changed.', 'success' ); document.getElementById( 'profile-change-password-form' ).reset(); }
+                    if ( res.ok && result.success ) { if ( window.showAppModal ) showAppModal( result.message || 'Great! Your password has been updated successfully. 🎉', 'success' ); document.getElementById( 'profile-change-password-form' ).reset(); }
                     else { if ( window.showAppModal ) showAppModal( result.message || 'Failed to change password.', 'error' ); }
                 } catch ( err )
                 {

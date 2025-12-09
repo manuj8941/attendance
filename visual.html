@@ -8,6 +8,7 @@
         <link rel="stylesheet" href="/css/mobile.css">
         <link rel="stylesheet" href="/css/flatpickr.min.css">
         <link rel="stylesheet" href="/css/airbnb.css">
+        <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css">
 
     </head>
 
@@ -15,18 +16,18 @@
         <div class="container">
             <div class="section">
                 <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
-                    <h1>My Calendar</h1>
-                    <a href="/dashboard" style="font-size:0.9rem">Back</a>
+                    <h1><i class="fas fa-calendar-alt"></i> My Attendance Calendar</h1>
+                    <a href="/dashboard" style="font-size:0.9rem"><i class="fas fa-home"></i> Back</a>
                 </div>
 
                 <div class="calendar-controls">
                     <div style="display:flex;gap:4px;align-items:center">
-                        <button id="prev-month" class="nav-btn">◀</button>
-                        <button id="next-month" class="nav-btn">▶</button>
+                        <button id="prev-month" class="nav-btn"><i class="fas fa-chevron-left"></i></button>
+                        <button id="next-month" class="nav-btn"><i class="fas fa-chevron-right"></i></button>
                         <strong id="month-label" style="margin-left:4px;font-size:1rem"></strong>
                     </div>
                     <div>
-                        <button id="today-btn" class="nav-btn">Today</button>
+                        <button id="today-btn" class="nav-btn"><i class="fas fa-calendar-day"></i> Today</button>
                     </div>
                 </div>
 
@@ -45,7 +46,8 @@
                 </div>
 
                 <div id="calendar" class="calendar-grid"></div>
-                <div id="calendar-loading" style="display:none;text-align:center;padding:20px;color:#666">Loading...
+                <div id="calendar-loading" style="display:none;text-align:center;padding:20px;color:#666"><i
+                        class="fas fa-spinner fa-spin"></i> Loading your calendar...
                 </div>
 
                 <div class="legend">

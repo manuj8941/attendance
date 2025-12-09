@@ -509,7 +509,7 @@ function enforceDeviceAccess ( req, res, next )
         const acceptsJson = req.headers && req.headers.accept && req.headers.accept.indexOf( 'application/json' ) !== -1;
         if ( acceptsJson || req.xhr )
         {
-            return res.status( 403 ).json( { error: 'Desktop access has been disabled by the Owner.' } );
+            return res.status( 403 ).json( { error: 'Hey there! 👋 For security, please sign in from your mobile device. Desktop access is currently disabled.' } );
         }
 
         // Destroy session and redirect to login with a flag so the UI can show a friendly message
@@ -544,7 +544,7 @@ app.post( '/login', ( req, res ) =>
         if ( err )
         {
             console.error( err.message );
-            req.session.loginError = 'Sorry — we had a problem signing you in. Please try again.';
+            req.session.loginError = 'Oops! Something went wrong. Please try signing in again.';
             return res.redirect( '/' );
         }
         if ( user )
@@ -628,14 +628,14 @@ app.post( '/login', ( req, res ) =>
                 } else
                 {
                     // invalid credentials: set session flash and redirect to login page
-                    req.session.loginError = 'Incorrect username or password. Please try again.';
+                    req.session.loginError = 'Hmm, that doesn\'t look right. Check your username and password and try again.';
                     return res.redirect( '/' );
                 }
             } );
         } else
         {
             // user not found
-            req.session.loginError = 'Incorrect username or password. Please try again.';
+            req.session.loginError = 'Hmm, that doesn\'t look right. Check your username and password and try again.';
             return res.redirect( '/' );
         }
     } );
@@ -864,7 +864,7 @@ app.get( '/attendance/status', requireLogin, ( req, res ) =>
         if ( err ) return res.status( 500 ).json( { error: err.message } );
         if ( off && off.off )
         {
-            const msg = off.type === 'ad_hoc' ? `Today has been declared off: ${ off.reason || '' }` : ( off.type === 'holiday' ? `Today is a holiday: ${ off.name }` : 'Today is a weekly off day.' );
+            const msg = off.type === 'ad_hoc' ? `Special day off today: ${ off.reason || '' } 🎉` : ( off.type === 'holiday' ? `It's a holiday today: ${ off.name } 🎊` : 'Weekly off today - enjoy your break! 😊' );
             return res.json( { status: 'off', message: msg } );
         }
 
@@ -899,14 +899,14 @@ app.post( '/mark-in', requireLogin, ( req, res ) =>
                 console.error( selErr.message );
                 const acceptsJson = req.headers && req.headers.accept && req.headers.accept.indexOf( 'application/json' ) !== -1;
                 const isXhr = req.xhr || ( req.headers && req.headers[ 'x-requested-with' ] === 'XMLHttpRequest' );
-                if ( acceptsJson || isXhr ) return res.status( 500 ).json( { success: false, message: 'Could not mark in. Please try again.' } );
+                if ( acceptsJson || isXhr ) return res.status( 500 ).json( { success: false, message: 'Something went wrong. Please try checking in again.' } );
                 return res.redirect( '/dashboard' );
             }
             if ( existing && existing.in_time )
             {
                 const acceptsJson = req.headers && req.headers.accept && req.headers.accept.indexOf( 'application/json' ) !== -1;
                 const isXhr = req.xhr || ( req.headers && req.headers[ 'x-requested-with' ] === 'XMLHttpRequest' );
-                if ( acceptsJson || isXhr ) return res.status( 400 ).json( { success: false, message: 'You have already marked in for today.' } );
+                if ( acceptsJson || isXhr ) return res.status( 400 ).json( { success: false, message: 'You\'ve already checked in today! Looking good. 😊' } );
                 return res.redirect( '/dashboard' );
             }
 
@@ -924,7 +924,7 @@ app.post( '/mark-in', requireLogin, ( req, res ) =>
                 console.log( `${ user.name } marked in on ${ now.format( 'D-MMM-YY' ) } at ${ now.format( 'h:mm A' ) }` );
                 const acceptsJson = req.headers && req.headers.accept && req.headers.accept.indexOf( 'application/json' ) !== -1;
                 const isXhr = req.xhr || ( req.headers && req.headers[ 'x-requested-with' ] === 'XMLHttpRequest' );
-                if ( acceptsJson || isXhr ) return res.json( { success: true, message: 'Marked in successfully.' } );
+                if ( acceptsJson || isXhr ) return res.json( { success: true, message: 'Checked in successfully! Have a great day! ✅' } );
                 res.redirect( '/dashboard' );
             } );
         } );
@@ -942,7 +942,7 @@ app.post( '/mark-in', requireLogin, ( req, res ) =>
             }
             if ( off && off.off )
             {
-                const msg = off.type === 'ad_hoc' ? `Today has been declared off: ${ off.reason || '' }` : ( off.type === 'holiday' ? `Today is a holiday: ${ off.name }` : 'Today is a weekly off day.' );
+                const msg = off.type === 'ad_hoc' ? `Special day off today: ${ off.reason || '' } 🎉` : ( off.type === 'holiday' ? `It's a holiday today: ${ off.name } 🎊` : 'Weekly off today - enjoy your break! 😊' );
                 const acceptsJson = req.headers && req.headers.accept && req.headers.accept.indexOf( 'application/json' ) !== -1;
                 if ( acceptsJson || req.xhr ) return res.status( 403 ).json( { success: false, message: msg } );
                 return res.redirect( '/dashboard' );
@@ -983,14 +983,14 @@ app.post( '/mark-out', requireLogin, ( req, res ) =>
             {
                 const acceptsJson = req.headers && req.headers.accept && req.headers.accept.indexOf( 'application/json' ) !== -1;
                 const isXhr = req.xhr || ( req.headers && req.headers[ 'x-requested-with' ] === 'XMLHttpRequest' );
-                if ( acceptsJson || isXhr ) return res.status( 400 ).json( { success: false, message: 'Cannot mark out: no corresponding mark-in found.' } );
+                if ( acceptsJson || isXhr ) return res.status( 400 ).json( { success: false, message: 'Oops! You need to check in first before checking out.' } );
                 return res.redirect( '/dashboard' );
             }
             if ( row.out_time )
             {
                 const acceptsJson = req.headers && req.headers.accept && req.headers.accept.indexOf( 'application/json' ) !== -1;
                 const isXhr = req.xhr || ( req.headers && req.headers[ 'x-requested-with' ] === 'XMLHttpRequest' );
-                if ( acceptsJson || isXhr ) return res.status( 400 ).json( { success: false, message: 'You have already marked out for today.' } );
+                if ( acceptsJson || isXhr ) return res.status( 400 ).json( { success: false, message: 'You\'ve already checked out. See you tomorrow!' } );
                 return res.redirect( '/dashboard' );
             }
 
@@ -1008,7 +1008,7 @@ app.post( '/mark-out', requireLogin, ( req, res ) =>
                 console.log( `${ user.name } marked out on ${ now.format( 'D-MMM-YY' ) } at ${ now.format( 'h:mm A' ) }` );
                 const acceptsJson = req.headers && req.headers.accept && req.headers.accept.indexOf( 'application/json' ) !== -1;
                 const isXhr = req.xhr || ( req.headers && req.headers[ 'x-requested-with' ] === 'XMLHttpRequest' );
-                if ( acceptsJson || isXhr ) return res.json( { success: true, message: 'Marked out successfully.' } );
+                if ( acceptsJson || isXhr ) return res.json( { success: true, message: 'All set! You\'re checked out. See you tomorrow! 👋' } );
                 res.redirect( '/dashboard' );
             } );
         } );
@@ -1026,7 +1026,7 @@ app.post( '/mark-out', requireLogin, ( req, res ) =>
             }
             if ( off && off.off )
             {
-                const msg = off.type === 'ad_hoc' ? `Today has been declared off: ${ off.reason || '' }` : ( off.type === 'holiday' ? `Today is a holiday: ${ off.name }` : 'Today is a weekly off day.' );
+                const msg = off.type === 'ad_hoc' ? `Special day off today: ${ off.reason || '' } 🎉` : ( off.type === 'holiday' ? `It's a holiday today: ${ off.name } 🎊` : 'Weekly off today - enjoy your break! 😊' );
                 const acceptsJson = req.headers && req.headers.accept && req.headers.accept.indexOf( 'application/json' ) !== -1;
                 if ( acceptsJson || req.xhr ) return res.status( 403 ).json( { success: false, message: msg } );
                 return res.redirect( '/dashboard' );
@@ -1133,7 +1133,7 @@ app.post( '/leaves/apply', requireLogin, async ( req, res ) =>
             {
                 // Format dates for a friendlier message (e.g. 24-November-2025)
                 const dates = attRows.map( r => formatDateForDisplay( r.date ) ).join( ', ' );
-                return res.status( 400 ).json( { success: false, message: `You have attendance records on the following date(s): ${ dates }. You cannot apply leave for days you were present.` } );
+                return res.status( 400 ).json( { success: false, message: `You were present on: ${ dates }. You can't request time off for days you've already worked.` } );
             }
 
             // Check whether any requested date is an off-day (ad-hoc, holiday, weekly)
@@ -1178,7 +1178,7 @@ app.post( '/leaves/apply', requireLogin, async ( req, res ) =>
                 }
                 if ( overlap )
                 {
-                    return res.status( 400 ).json( { success: false, message: 'Requested dates overlap with an existing leave request.' } );
+                    return res.status( 400 ).json( { success: false, message: 'You already have a request for these dates.' } );
                 }
 
                 // Check balance
@@ -1187,7 +1187,7 @@ app.post( '/leaves/apply', requireLogin, async ( req, res ) =>
                     const balance = await calculateAndUpdateLeaveBalance( username );
                     if ( balance < leaveDuration )
                     {
-                        return res.status( 400 ).json( { success: false, message: 'You do not have enough leave balance for the requested dates.' } );
+                        return res.status( 400 ).json( { success: false, message: `You don't have enough days available. Current balance: ${ balance } days.` } );
                     }
                 } catch ( balErr )
                 {
@@ -1209,7 +1209,7 @@ app.post( '/leaves/apply', requireLogin, async ( req, res ) =>
                         return res.status( 500 ).json( { success: false, message: 'We could not submit your leave request. Please try again later.' } );
                     }
                     console.log( `${ username } applied for leave from ${ formatDateForDisplay( start_date ) } to ${ formatDateForDisplay( end_date ) }` );
-                    return res.status( 200 ).json( { success: true, message: 'Leave applied successfully.' } );
+                    return res.status( 200 ).json( { success: true, message: 'Request submitted! We\'ll let you know once it\'s reviewed. ✅' } );
                 } );
             } );
         } );
@@ -1230,15 +1230,15 @@ app.post( '/leaves/takeback', requireLogin, ( req, res ) =>
     {
         if ( err ) return res.status( 500 ).json( { success: false, message: err.message } );
         if ( !row ) return res.status( 404 ).json( { success: false, message: 'Leave request not found.' } );
-        if ( row.taken_back ) return res.status( 400 ).json( { success: false, message: 'This leave request has already been taken back.' } );
-        if ( row.status !== 'pending' ) return res.status( 400 ).json( { success: false, message: 'Only pending leave requests can be taken back.' } );
+        if ( row.taken_back ) return res.status( 400 ).json( { success: false, message: 'This request was already withdrawn.' } );
+        if ( row.status !== 'pending' ) return res.status( 400 ).json( { success: false, message: 'You can only withdraw pending requests.' } );
 
         const ts = new Date().toISOString();
         db.run( 'UPDATE leaves SET taken_back = 1, taken_back_at = ?, status = ? WHERE leave_id = ?', [ ts, 'withdrawn', leave_id ], function ( upErr )
         {
-            if ( upErr ) return res.status( 500 ).json( { success: false, message: 'Could not take back leave request.' } );
+            if ( upErr ) return res.status( 500 ).json( { success: false, message: 'Could not withdraw leave request.' } );
             console.log( `${ username } withdrew leave request ${ leave_id } at ${ moment( ts ).format( 'D-MMM-YY, h:mm A' ) }` );
-            return res.json( { success: true, message: 'Leave request taken back.' } );
+            return res.json( { success: true, message: 'Request withdrawn successfully.' } );
         } );
     } );
 } );
@@ -1319,7 +1319,7 @@ app.get( '/admin/settings/test-date', requireOwner, ( req, res ) =>
 app.post( '/admin/settings/test-date', requireOwner, ( req, res ) =>
 {
     const { test_date } = req.body || {};
-    if ( test_date && !moment( test_date, 'YYYY-MM-DD', true ).isValid() ) return res.status( 400 ).json( { success: false, message: 'test_date must be in YYYY-MM-DD format.' } );
+    if ( test_date && !moment( test_date, 'YYYY-MM-DD', true ).isValid() ) return res.status( 400 ).json( { success: false, message: 'Please use YYYY-MM-DD format (like 2025-12-25).' } );
     const value = test_date ? test_date : '';
     db.run( 'INSERT OR REPLACE INTO settings (name, value) VALUES (?, ?)', [ 'test_date_override', value ], function ( err )
     {
@@ -1345,17 +1345,17 @@ app.post( '/admin/settings/app', requireOwner, ( req, res ) =>
     // Supported modes: 1 (Sundays), 2 (Sundays+Saturdays), 3 (Sundays + 2nd & 4th Saturdays)
     const allowed = [ '1', '2', '3' ];
     const mode = ( '' + ( weekly_off_mode || '1' ) ).trim();
-    if ( allowed.indexOf( mode ) === -1 ) return res.status( 400 ).json( { success: false, message: 'Invalid weekly off mode.' } );
+    if ( allowed.indexOf( mode ) === -1 ) return res.status( 400 ).json( { success: false, message: 'Please choose a valid weekly off mode (1, 2, or 3).' } );
 
     const enabled = ( desktop_enabled === true || desktop_enabled === '1' || desktop_enabled === 1 ) ? '1' : '0';
     db.run( 'INSERT OR REPLACE INTO settings (name, value) VALUES (?, ?)', [ 'desktop_enabled', enabled ] );
     db.run( 'INSERT OR REPLACE INTO settings (name, value) VALUES (?, ?)', [ 'weekly_off_mode', mode ] );
-    const desktopText = ( enabled === '1' ) ? 'enabled desktop access for non-owners' : 'disabled desktop access for non-owners';
-    let weeklyText = 'weekly off: Sundays';
-    if ( mode === '2' ) weeklyText = 'weekly off: Sundays & Saturdays';
-    else if ( mode === '3' ) weeklyText = 'weekly off: Sundays + 2nd & 4th Saturdays';
+    const desktopText = ( enabled === '1' ) ? 'Desktop access is now on for team members' : 'Desktop access is now off - mobile only';
+    let weeklyText = 'Weekly offs: Sundays';
+    if ( mode === '2' ) weeklyText = 'Weekly offs: Sundays & Saturdays';
+    else if ( mode === '3' ) weeklyText = 'Weekly offs: Sundays + 2nd & 4th Saturdays';
     console.log( `${ req.session.user.name } updated app settings: ${ desktopText }; ${ weeklyText }.` );
-    return res.json( { success: true } );
+    return res.json( { success: true, message: 'Settings saved! All updated. ✅' } );
 } );
 
 // Add ad-hoc off (owner only). date must be > today (at least one day ahead)
@@ -1483,19 +1483,19 @@ app.post( '/admin/users/add', requireAdmin, ( req, res ) =>
     // Basic validation: allow only letters, numbers, underscore
     if ( !/^[A-Za-z0-9_]+$/.test( username ) )
     {
-        return res.status( 400 ).json( { success: false, message: 'Username can only contain letters, numbers, and underscore.' } );
+        return res.status( 400 ).json( { success: false, message: 'Please use only letters, numbers, and underscores (no spaces).' } );
     }
 
     db.get( 'SELECT name FROM users WHERE name = ?', [ username ], ( err, row ) =>
     {
         if ( err ) return res.status( 500 ).json( { success: false, message: err.message } );
-        if ( row ) return res.status( 400 ).json( { success: false, message: 'That username is already taken. Please choose a different one.' } );
+        if ( row ) return res.status( 400 ).json( { success: false, message: 'This username is taken. Please try a different one.' } );
 
         const joinDate = moment().format( 'YYYY-MM-DD' );
         // Prevent managers from creating owners or other managers
         if ( req.session.user && req.session.user.role === 'manager' && ( userRole === 'owner' || userRole === 'manager' ) )
         {
-            return res.status( 403 ).json( { success: false, message: 'Only the Owner can create Owners or Managers.' } );
+            return res.status( 403 ).json( { success: false, message: 'Only the system owner can add managers or other owners.' } );
         }
 
         try
@@ -1529,7 +1529,7 @@ app.post( '/admin/users/add', requireAdmin, ( req, res ) =>
                 }
 
                 console.log( `Admin ${ req.session.user.name } added user ${ username } with role ${ userRole }` );
-                res.json( { success: true, message: 'User created successfully.' } );
+                res.json( { success: true, message: 'Team member added! They can now sign in. 🎉' } );
             } );
         } catch ( e )
         {
@@ -1627,24 +1627,24 @@ app.post( '/admin/leaves/action', requireAdmin, ( req, res ) =>
         // Prevent actions on withdrawn/taken-back requests
         if ( leave.taken_back )
         {
-            return res.status( 400 ).send( 'This leave request has been withdrawn by the requester.' );
+            return res.status( 400 ).send( 'This request was withdrawn by the team member.' );
         }
 
         // Prevent actions on already-processed leaves (race condition protection)
         if ( leave.status !== 'pending' )
         {
-            return res.status( 409 ).send( 'This leave has already been processed by another admin. Please refresh the page.' );
+            return res.status( 409 ).send( 'This request was already processed. Please refresh the page to see the latest status.' );
         }
 
         // Check permissions
         if ( admin.role === 'manager' && leave.role !== 'employee' )
         {
-            return res.status( 403 ).send( 'You do not have permission to approve or reject this leave request.' );
+            return res.status( 403 ).send( 'You can only approve or decline requests from team members (not managers or owners).' );
         }
 
         if ( admin.role !== 'owner' && leave.role === 'manager' )
         {
-            return res.status( 403 ).send( 'Only the Owner may approve or reject this leave request.' );
+            return res.status( 403 ).send( 'Only the system owner can approve or decline manager requests.' );
         }
 
         if ( status === 'approved' )
@@ -1655,7 +1655,7 @@ app.post( '/admin/leaves/action', requireAdmin, ( req, res ) =>
 
         db.run( 'UPDATE leaves SET status = ?, approved_by = ? WHERE leave_id = ?', [ status, admin.name, leave_id ], function ( err )
         {
-            if ( err ) return res.status( 500 ).send( 'We could not process this leave request. Please try again.' );
+            if ( err ) return res.status( 500 ).send( 'Something went wrong. Please try processing this request again.' );
             console.log( `${ admin.name } ${ status } leave for ${ leave.username } from dates ${ formatDateForDisplay( leave.start_date ) } to ${ formatDateForDisplay( leave.end_date ) }` );
             res.sendStatus( 200 );
         } );
@@ -1677,14 +1677,14 @@ app.post( '/admin/users/reset-password', requireAdmin, ( req, res ) =>
 
     if ( !username || !username.trim() )
     {
-        return res.status( 400 ).json( { success: false, message: 'Please select a user to reset.' } );
+        return res.status( 400 ).json( { success: false, message: 'Please select a team member to reset.' } );
     }
 
     const target = username.trim();
     db.get( 'SELECT role FROM users WHERE name = ?', [ target ], ( err, row ) =>
     {
         if ( err ) return res.status( 500 ).json( { success: false, message: err.message } );
-        if ( !row ) return res.status( 404 ).json( { success: false, message: 'The selected user was not found.' } );
+        if ( !row ) return res.status( 404 ).json( { success: false, message: 'We couldn\'t find that team member.' } );
         const targetRole = row.role;
 
         // Permission checks
@@ -1694,10 +1694,10 @@ app.post( '/admin/users/reset-password', requireAdmin, ( req, res ) =>
         } else if ( requesterRole === 'manager' )
         {
             // manager can reset only regular employees, not other managers or owners
-            if ( targetRole !== 'employee' ) return res.status( 403 ).json( { success: false, message: 'You do not have permission to reset that user\'s password.' } );
+            if ( targetRole !== 'employee' ) return res.status( 403 ).json( { success: false, message: 'You can only reset passwords for team members (not managers or owners).' } );
         } else
         {
-            return res.status( 403 ).json( { success: false, message: 'You are not authorized to perform this action.' } );
+            return res.status( 403 ).json( { success: false, message: 'You\'re not authorized to do this.' } );
         }
 
         try
@@ -1706,7 +1706,7 @@ app.post( '/admin/users/reset-password', requireAdmin, ( req, res ) =>
             db.run( 'UPDATE users SET password = ? WHERE name = ?', [ newHash, target ], function ( updateErr )
             {
                 if ( updateErr ) return res.status( 500 ).json( { success: false, message: updateErr.message } );
-                return res.json( { success: true, message: `Password reset for ${ target }.` } );
+                return res.json( { success: true, message: `Password reset for ${ target }. Their new password is: ${ newPwd }` } );
             } );
         } catch ( e )
         {
@@ -1723,7 +1723,7 @@ app.post( '/user/change-password', requireLogin, ( req, res ) =>
 
     if ( !new_password || !new_password.trim() )
     {
-        return res.status( 400 ).json( { success: false, message: 'New password is required.' } );
+        return res.status( 400 ).json( { success: false, message: 'Please enter a new password.' } );
     }
 
     db.get( 'SELECT password FROM users WHERE name = ?', [ username ], ( err, row ) =>
@@ -1734,12 +1734,12 @@ app.post( '/user/change-password', requireLogin, ( req, res ) =>
         // If old_password provided, verify it. If not provided, require it for safety.
         if ( !old_password )
         {
-            return res.status( 400 ).json( { success: false, message: 'Current password is required for change.' } );
+            return res.status( 400 ).json( { success: false, message: 'Please enter your current password to confirm.' } );
         }
 
         if ( !bcrypt.compareSync( ( old_password || '' ).toString(), row.password ) )
         {
-            return res.status( 400 ).json( { success: false, message: 'Current password is incorrect.' } );
+            return res.status( 400 ).json( { success: false, message: 'Hmm, that current password doesn\'t match. Please try again.' } );
         }
 
         try
@@ -1750,7 +1750,7 @@ app.post( '/user/change-password', requireLogin, ( req, res ) =>
                 if ( updateErr ) return res.status( 500 ).json( { success: false, message: updateErr.message } );
                 // Update session copy: do not store password in session
                 if ( req.session.user ) req.session.user = { name: username, role: req.session.user.role };
-                return res.json( { success: true, message: 'Password changed successfully.' } );
+                return res.json( { success: true, message: 'Password updated! All set. ✅' } );
             } );
         } catch ( e )
         {
