@@ -1,13 +1,26 @@
 require( 'dotenv' ).config();
 const express = require( 'express' );
-const sqlite3 = require( 'sqlite3' ).verbose();
 const path = require( 'path' );
 const session = require( 'express-session' );
 const fs = require( 'fs' );
 const moment = require( 'moment' );
-const bcrypt = require( 'bcryptjs' );
 const sharp = require( 'sharp' );
-const SALT_ROUNDS = 10;
+const { db, users, initializeDatabase } = require( './db/database' );
+const { getSetting, updateSetting, getSettings } = require( './db/settings' );
+const {
+    getUserByName,
+    getUserRole,
+    verifyPassword,
+    hashPassword,
+    getCurrentSessionId,
+    updateSessionId,
+    getAllUsers,
+    createUser,
+    updatePassword,
+    getLeaveBalance,
+    updateLeaveBalance,
+    deductLeaveBalance
+} = require( './db/users' );
 
 const app = express();
 const port = process.env.PORT || 3000;
@@ -24,15 +37,6 @@ if ( !fs.existsSync( logosDir ) )
 {
     fs.mkdirSync( logosDir );
 }
-
-const users = [
-    { name: 'smita', password: '111', role: 'owner' },
-    { name: 'dinesh', password: '111', role: 'manager' },
-    { name: 'manuj', password: '111', role: 'employee' },
-    { name: 'atul', password: '111', role: 'employee' },
-    { name: 'kamini', password: '111', role: 'employee' },
-    { name: 'nazmul', password: '111', role: 'employee' }
-];
 
 users.forEach( user =>
 {
@@ -55,176 +59,6 @@ app.use( '/selfies', express.static( 'selfies' ) );
 app.use( '/logos', express.static( 'logos' ) );
 // Serve public assets (CSS, JS) including mobile stylesheet
 app.use( express.static( 'public' ) );
-
-// --- DATABASE INITIALIZATION ---
-const db = new sqlite3.Database( './attendance.db', ( err ) =>
-{
-    if ( err )
-    {
-        console.error( err.message );
-    }
-    console.log( 'Connected to the attendance database.' );
-} );
-
-db.serialize( () =>
-{
-    // Users table with roles, leave balance, last update timestamp, and join date
-    db.run( 'CREATE TABLE IF NOT EXISTS users (name TEXT PRIMARY KEY, password TEXT, role TEXT, leave_balance REAL DEFAULT 0, leave_balance_last_updated TEXT, join_date TEXT DEFAULT \'2025-01-01\')', ( err ) =>
-    {
-        if ( err )
-        {
-            console.error( "Error creating users table", err.message );
-            return;
-        }
-        // Schema is managed centrally; no runtime ALTER/UPDATE migrations required here.
-    } );
-
-    const stmtUsers = db.prepare( 'INSERT OR IGNORE INTO users (name, password, role, join_date) VALUES (?, ?, ?, ?)' );
-    users.forEach( user =>
-    {
-        try
-        {
-            const pwdHash = bcrypt.hashSync( ( user.password || '' ).toString(), SALT_ROUNDS );
-            stmtUsers.run( user.name, pwdHash, user.role, '2025-01-01' ); // Default join_date for all users
-        } catch ( e )
-        {
-            console.error( 'Error hashing seed password for', user.name, e );
-            stmtUsers.run( user.name, user.password, user.role, '2025-01-01' );
-        }
-    } );
-    stmtUsers.finalize();
-
-    // Ensure optional column exists on `users` for single-session mapping (current_session_id)
-    db.all( "PRAGMA table_info(users)", [], ( prErrU, ucols ) =>
-    {
-        if ( prErrU ) return; // cannot verify, skip safely
-        try
-        {
-            const namesU = ( ucols || [] ).map( c => c.name );
-            if ( namesU.indexOf( 'current_session_id' ) === -1 ) db.run( "ALTER TABLE users ADD COLUMN current_session_id TEXT DEFAULT ''" );
-        } catch ( e ) { /* ignore migration errors */ }
-    } );
-
-    // Attendance tables
-    users.forEach( user =>
-    {
-        if ( user.role !== 'owner' )
-        { // Owner admin does not mark attendance
-            db.run( `CREATE TABLE IF NOT EXISTS attendance_${ user.name } (
-                date TEXT PRIMARY KEY, 
-                in_time TEXT, in_latitude REAL, in_longitude REAL, in_selfie_path TEXT,
-                out_time TEXT, out_latitude REAL, out_longitude REAL, out_selfie_path TEXT
-            )`);
-        }
-    } );
-
-    // Leaves table
-    db.run( `CREATE TABLE IF NOT EXISTS leaves (
-        leave_id INTEGER PRIMARY KEY AUTOINCREMENT,
-        username TEXT,
-        start_date TEXT,
-        end_date TEXT,
-        reason TEXT,
-        status TEXT DEFAULT 'pending',
-        approved_by TEXT
-    )`);
-
-    // Ensure optional columns exist on `leaves` for older databases.
-    // This performs a safe PRAGMA check and only adds missing columns so existing DBs
-    // that were created before these columns were introduced won't cause runtime SQL errors.
-    db.all( "PRAGMA table_info(leaves)", [], ( prErr, cols ) =>
-    {
-        if ( prErr ) return; // cannot verify, skip safely
-        try
-        {
-            const names = ( cols || [] ).map( c => c.name );
-            if ( names.indexOf( 'is_backdated' ) === -1 ) db.run( "ALTER TABLE leaves ADD COLUMN is_backdated INTEGER DEFAULT 0" );
-            if ( names.indexOf( 'taken_back' ) === -1 ) db.run( "ALTER TABLE leaves ADD COLUMN taken_back INTEGER DEFAULT 0" );
-            if ( names.indexOf( 'taken_back_at' ) === -1 ) db.run( "ALTER TABLE leaves ADD COLUMN taken_back_at TEXT DEFAULT ''" );
-        } catch ( e ) { /* ignore migration errors */ }
-    } );
-
-    // Settings table for simple app-wide flags (e.g. desktop access toggle)
-    db.run( "CREATE TABLE IF NOT EXISTS settings (name TEXT PRIMARY KEY, value TEXT)", ( err ) =>
-    {
-        if ( err ) console.error( 'Error creating settings table', err && err.message );
-        else
-        {
-            // defaults: desktop access ON by default
-            db.run( "INSERT OR IGNORE INTO settings (name, value) VALUES (?, ?)", [ 'desktop_enabled', '1' ] );
-            db.run( "INSERT OR IGNORE INTO settings (name, value) VALUES (?, ?)", [ 'desktop_disabled_at', '' ] );
-            // test_date_override is empty by default (no global override)
-            db.run( "INSERT OR IGNORE INTO settings (name, value) VALUES (?, ?)", [ 'test_date_override', '' ] );
-        }
-    } );
-
-    // Ad-hoc off days table (owner declares specific YYYY-MM-DD days off)
-    db.run( `CREATE TABLE IF NOT EXISTS ad_hoc_offs (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        date TEXT UNIQUE,
-        reason TEXT,
-        created_by TEXT,
-        created_at TEXT
-    )` );
-
-    // Yearly holidays table (store month-day like '10-15' for recurring yearly celebrations)
-    db.run( `CREATE TABLE IF NOT EXISTS holidays (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        name TEXT,
-        month_day TEXT,
-        date TEXT
-    )` );
-
-    // Weekly off scheduling (1 default -> All Sundays off). Stored in settings as 'weekly_off_mode'
-    db.run( "INSERT OR IGNORE INTO settings (name, value) VALUES (?, ?)", [ 'weekly_off_mode', '1' ] );
-
-    // Branding settings for white-label customization
-    db.run( "INSERT OR IGNORE INTO settings (name, value) VALUES (?, ?)", [ 'company_logo', '' ] );
-    db.run( "INSERT OR IGNORE INTO settings (name, value) VALUES (?, ?)", [ 'brand_color', '#0ea5a4' ] );
-    db.run( "INSERT OR IGNORE INTO settings (name, value) VALUES (?, ?)", [ 'company_name', 'Attendance System' ] );
-
-    // --- SERVER STARTUP LEAVE ACCRUAL ---
-    db.all( 'SELECT name, join_date, leave_balance, leave_balance_last_updated FROM users WHERE role != ?', [ 'owner' ], async ( err, employees ) =>
-    {
-        if ( err )
-        {
-            console.error( 'Error fetching employees for startup accrual:', err.message );
-            return;
-        }
-        for ( const employee of employees )
-        {
-            try
-            {
-                await accrueLeavesForUserOnStartup( employee );
-            } catch ( error )
-            {
-                console.error( `Error during startup leave accrual for ${ employee.name }:`, error.message );
-            }
-        }
-        console.log( 'Initial leave accrual on startup completed.' );
-    } );
-    // Load global test-date override into app local cache for fast access
-    db.get( "SELECT value FROM settings WHERE name = ?", [ 'test_date_override' ], ( err, row ) =>
-    {
-        const val = ( row && row.value ) ? row.value : '';
-        app.locals.testDateOverride = val;
-        if ( val )
-        {
-            try
-            {
-                const m = moment( val, 'YYYY-MM-DD', true );
-                const formatted = m.isValid() ? m.format( 'D-MMM-YY' ) : val;
-                console.log( 'Loaded test_date_override:', formatted );
-            } catch ( e )
-            {
-                console.log( 'Loaded test_date_override:', val );
-            }
-        } else
-        {
-            console.log( 'Loaded test_date_override: (none)' );
-        }
-    } );
-} );
 
 // --- HELPER FUNCTIONS ---
 
@@ -303,6 +137,10 @@ function getEffectiveDate ( req )
     return moment().format( 'YYYY-MM-DD' );
 }
 
+// --- DATABASE INITIALIZATION ---
+// Initialize database (runs migrations, seeds users, loads settings)
+initializeDatabase( app, accrueLeavesForUserOnStartup );
+
 // --- LEAVE ACCRUAL LOGIC (ON STARTUP) ---
 async function accrueLeavesForUserOnStartup ( employee )
 {
@@ -336,14 +174,13 @@ async function accrueLeavesForUserOnStartup ( employee )
         {
             currentBalance += monthsToAccrue * 2;
             const newLastAccrualMonth = now.format( 'YYYY-MM' );
-            db.run( 'UPDATE users SET leave_balance = ?, leave_balance_last_updated = ? WHERE name = ?',
-                [ currentBalance, newLastAccrualMonth, employee.name ],
-                ( updateErr ) =>
+            updateLeaveBalance( employee.name, currentBalance, newLastAccrualMonth )
+                .then( () =>
                 {
-                    if ( updateErr ) return reject( updateErr );
                     console.log( `Accrued ${ monthsToAccrue * 2 } leaves for ${ employee.name }. New balance: ${ currentBalance }` );
                     resolve( currentBalance );
-                } );
+                } )
+                .catch( ( updateErr ) => reject( updateErr ) );
         } else
         {
             resolve( currentBalance );
@@ -354,15 +191,7 @@ async function accrueLeavesForUserOnStartup ( employee )
 // --- LEAVE BALANCE CALCULATION (READ ONLY) ---
 async function calculateAndUpdateLeaveBalance ( username )
 {
-    return new Promise( ( resolve, reject ) =>
-    {
-        db.get( 'SELECT leave_balance FROM users WHERE name = ?', [ username ], ( err, user ) =>
-        {
-            if ( err ) return reject( err );
-            if ( !user ) return reject( new Error( 'User not found' ) );
-            resolve( parseFloat( user.leave_balance ) || 0 );
-        } );
-    } );
+    return getLeaveBalance( username );
 }
 
 // --- AUTHENTICATION & MIDDLEWARE ---
@@ -374,30 +203,22 @@ function requireLogin ( req, res, next )
     }
 
     // Verify this session matches the single-session id stored on the users row.
-    try
-    {
-        db.get( 'SELECT current_session_id FROM users WHERE name = ?', [ req.session.user.name ], ( err, row ) =>
+    getCurrentSessionId( req.session.user.name )
+        .then( ( stored ) =>
         {
-            if ( err )
-            {
-                console.error( 'Error verifying session id for user', req.session.user && req.session.user.name, err && err.message );
-                // On DB error, allow the session (fail-open) so users are not locked out due to transient DB issues.
-                return next();
-            }
-            const stored = ( row && row.current_session_id ) ? row.current_session_id : '';
             if ( stored && stored !== req.sessionID )
             {
                 // Another session has replaced this one; destroy current session and redirect to login
                 return req.session.destroy( () => res.redirect( '/?session_invalidated=1' ) );
             }
             return next();
+        } )
+        .catch( ( err ) =>
+        {
+            console.error( 'Error verifying session id for user', req.session.user && req.session.user.name, err && err.message );
+            // On DB error, allow the session (fail-open) so users are not locked out due to transient DB issues.
+            return next();
         } );
-    } catch ( e )
-    {
-        // If something unexpected happens, allow the request to proceed rather than blocking traffic.
-        console.error( 'Unexpected error in requireLogin session check', e );
-        return next();
-    }
 }
 
 function requireAdmin ( req, res, next )
@@ -444,10 +265,9 @@ function checkIfDateIsOff ( date, callback )
                 if ( hol ) return callback( null, { off: true, type: 'holiday', name: hol.name } );
 
                 // 4) Check weekly off mode
-                db.get( 'SELECT value FROM settings WHERE name = ?', [ 'weekly_off_mode' ], ( err3, row ) =>
+                getSetting( 'weekly_off_mode' ).then( ( value ) =>
                 {
-                    if ( err3 ) return callback( err3 );
-                    const mode = row && row.value ? row.value : '1';
+                    const mode = value || '1';
                     const dow = m.day(); // 0=Sunday,6=Saturday
 
                     // Mode mapping
@@ -467,7 +287,7 @@ function checkIfDateIsOff ( date, callback )
                     }
 
                     return callback( null, { off: false } );
-                } );
+                } ).catch( ( err3 ) => callback( err3 ) );
             } );
         } );
     } );
@@ -504,14 +324,9 @@ function enforceDeviceAccess ( req, res, next )
     if ( !req.session || !req.session.user || req.session.user.role === 'owner' ) return next();
 
     // Check current app-wide desktop flag
-    db.get( 'SELECT value FROM settings WHERE name = ?', [ 'desktop_enabled' ], ( err, row ) =>
+    getSetting( 'desktop_enabled' ).then( ( value ) =>
     {
-        if ( err )
-        {
-            console.error( 'Error reading desktop_enabled setting', err && err.message );
-            return next();
-        }
-        const enabled = row && row.value ? row.value : '1';
+        const enabled = value || '1';
         if ( enabled === '1' ) return next();
 
         // desktop access is disabled; if request is from a desktop browser, block
@@ -531,6 +346,10 @@ function enforceDeviceAccess ( req, res, next )
         {
             return res.redirect( '/?desktop_blocked=1' );
         } );
+    } ).catch( ( err ) =>
+    {
+        console.error( 'Error reading desktop_enabled setting', err && err.message );
+        return next();
     } );
 }
 
@@ -550,27 +369,19 @@ app.get( '/', ( req, res ) =>
     }
 } );
 
-app.post( '/login', ( req, res ) =>
+app.post( '/login', async ( req, res ) =>
 {
-    const { name, password } = req.body;
-    db.get( 'SELECT * FROM users WHERE name = ?', [ name ], ( err, user ) =>
+    try
     {
-        if ( err )
-        {
-            console.error( err.message );
-            req.session.loginError = 'Oops! Something went wrong. Please try signing in again.';
-            return res.redirect( '/' );
-        }
+        const { name, password } = req.body;
+        const user = await getUserByName( name );
+
         if ( user )
         {
             // If desktop access is disabled, prevent non-owner logins from desktop devices
-            db.get( 'SELECT value FROM settings WHERE name = ?', [ 'desktop_enabled' ], ( setErr, setRow ) =>
+            getSetting( 'desktop_enabled' ).then( ( value ) =>
             {
-                if ( setErr )
-                {
-                    console.error( 'Error reading settings during login:', setErr && setErr.message );
-                }
-                const enabled = setRow && setRow.value ? setRow.value : '1';
+                const enabled = value || '1';
                 const isMobileReq = isRequestMobile( req );
                 if ( enabled === '0' && !isMobileReq && user.role !== 'owner' )
                 {
@@ -579,7 +390,7 @@ app.post( '/login', ( req, res ) =>
                     return res.redirect( '/?desktop_blocked=1' );
                 }
 
-                if ( bcrypt.compareSync( ( password || '' ).toString(), user.password ) )
+                if ( verifyPassword( password, user.password ) )
                 {
                     // successful login -- implement single-session mapping (Invalidate-old)
                     const prevSid = user.current_session_id || '';
@@ -602,42 +413,63 @@ app.post( '/login', ( req, res ) =>
                             // best-effort destroy via the session store
                             if ( req.sessionStore && typeof req.sessionStore.destroy === 'function' )
                             {
-                                req.sessionStore.destroy( prevSid, ( _destroyErr ) =>
+                                req.sessionStore.destroy( prevSid, async ( _destroyErr ) =>
                                 {
                                     // ignore destroy errors and proceed to update DB
-                                    db.run( 'UPDATE users SET current_session_id = ? WHERE name = ?', [ newSid, user.name ], ( upErr ) =>
+                                    try
                                     {
-                                        if ( upErr ) console.error( 'Failed to update current_session_id after login', upErr && upErr.message );
-                                        return finalizeLogin();
-                                    } );
+                                        await updateSessionId( user.name, newSid );
+                                    } catch ( upErr )
+                                    {
+                                        console.error( 'Failed to update current_session_id after login', upErr && upErr.message );
+                                    }
+                                    return finalizeLogin();
                                 } );
                             } else
                             {
                                 // no store access; still update DB and proceed
-                                db.run( 'UPDATE users SET current_session_id = ? WHERE name = ?', [ newSid, user.name ], ( upErr ) =>
+                                ( async () =>
                                 {
-                                    if ( upErr ) console.error( 'Failed to update current_session_id after login', upErr && upErr.message );
+                                    try
+                                    {
+                                        await updateSessionId( user.name, newSid );
+                                    } catch ( upErr )
+                                    {
+                                        console.error( 'Failed to update current_session_id after login', upErr && upErr.message );
+                                    }
                                     return finalizeLogin();
-                                } );
+                                } )();
                             }
                         } catch ( e )
                         {
                             // Unexpected error; log and finalize login
                             console.error( 'Error destroying previous session', e );
-                            db.run( 'UPDATE users SET current_session_id = ? WHERE name = ?', [ newSid, user.name ], ( upErr ) =>
+                            ( async () =>
                             {
-                                if ( upErr ) console.error( 'Failed to update current_session_id after login', upErr && upErr.message );
+                                try
+                                {
+                                    await updateSessionId( user.name, newSid );
+                                } catch ( upErr )
+                                {
+                                    console.error( 'Failed to update current_session_id after login', upErr && upErr.message );
+                                }
                                 return finalizeLogin();
-                            } );
+                            } )();
                         }
                     } else
                     {
                         // No previous session or same session - simply record the mapping and finalize
-                        db.run( 'UPDATE users SET current_session_id = ? WHERE name = ?', [ newSid, user.name ], ( upErr ) =>
+                        ( async () =>
                         {
-                            if ( upErr ) console.error( 'Failed to update current_session_id after login', upErr && upErr.message );
+                            try
+                            {
+                                await updateSessionId( user.name, newSid );
+                            } catch ( upErr )
+                            {
+                                console.error( 'Failed to update current_session_id after login', upErr && upErr.message );
+                            }
                             return finalizeLogin();
-                        } );
+                        } )();
                     }
                 } else
                 {
@@ -645,6 +477,11 @@ app.post( '/login', ( req, res ) =>
                     req.session.loginError = 'Hmm, that doesn\'t look right. Check your username and password and try again.';
                     return res.redirect( '/' );
                 }
+            } ).catch( ( setErr ) =>
+            {
+                console.error( 'Error reading settings during login:', setErr && setErr.message );
+                // Continue with login on error (fail-open for settings check)
+                return res.redirect( '/' );
             } );
         } else
         {
@@ -652,7 +489,12 @@ app.post( '/login', ( req, res ) =>
             req.session.loginError = 'Hmm, that doesn\'t look right. Check your username and password and try again.';
             return res.redirect( '/' );
         }
-    } );
+    } catch ( err )
+    {
+        console.error( err.message );
+        req.session.loginError = 'Oops! Something went wrong. Please try signing in again.';
+        return res.redirect( '/' );
+    }
 } );
 
 
@@ -665,18 +507,21 @@ app.get( '/login/error', ( req, res ) =>
     res.json( { error: errMsg } );
 } );
 
-app.get( '/logout', ( req, res ) =>
+app.get( '/logout', async ( req, res ) =>
 {
     if ( req.session && req.session.user )
     {
         const username = req.session.user.name;
-        db.run( 'UPDATE users SET current_session_id = ? WHERE name = ?', [ '', username ], ( upErr ) =>
+        try
         {
-            if ( upErr ) console.error( 'Failed to clear current_session_id on logout', upErr && upErr.message );
-            req.session.destroy( () =>
-            {
-                res.redirect( '/' );
-            } );
+            await updateSessionId( username, '' );
+        } catch ( upErr )
+        {
+            console.error( 'Failed to clear current_session_id on logout', upErr && upErr.message );
+        }
+        req.session.destroy( () =>
+        {
+            res.redirect( '/' );
         } );
     } else
     {
@@ -743,7 +588,7 @@ app.get( '/visual/data', requireLogin, async ( req, res ) =>
         const requester = req.session.user;
         if ( requester.role === 'employee' && requester.name !== username ) return res.status( 403 ).json( { error: 'Not authorized' } );
 
-        const userRow = await new Promise( ( resolve ) => db.get( 'SELECT name, role FROM users WHERE name = ?', [ username ], ( err, row ) => resolve( row || null ) ) );
+        const userRow = await getUserByName( username );
         if ( !userRow ) return res.status( 404 ).json( { error: 'User not found' } );
         // Defense-in-depth: do not expose visual calendar data for Owner accounts
         if ( userRow.role === 'owner' ) return res.status( 404 ).json( { error: 'User not found' } );
@@ -771,7 +616,7 @@ app.get( '/visual/data', requireLogin, async ( req, res ) =>
 
         const holidaysPromise = new Promise( ( resolve ) => db.all( 'SELECT id, name, month_day, date FROM holidays', [], ( err, rows ) => resolve( err ? [] : ( rows || [] ) ) ) );
 
-        const weeklyModePromise = new Promise( ( resolve ) => db.get( "SELECT value FROM settings WHERE name = ?", [ 'weekly_off_mode' ], ( err, row ) => resolve( ( row && row.value ) ? row.value : '1' ) ) );
+        const weeklyModePromise = getSetting( 'weekly_off_mode' ).then( ( value ) => value || '1' ).catch( () => '1' );
 
         const [ attendanceRows, leaveRows, adhocRows, holidaysRows, weeklyMode ] = await Promise.all( [ attendancePromise, leavesPromise, adhocPromise, holidaysPromise, weeklyModePromise ] );
 
@@ -1289,38 +1134,39 @@ app.get( '/admin', requireAdmin, ( req, res ) =>
     return res.sendFile( path.join( __dirname, 'admin.html' ) );
 } );
 
-app.get( '/admin/users', requireAdmin, ( req, res ) =>
+app.get( '/admin/users', requireAdmin, async ( req, res ) =>
 {
-    db.all( 'SELECT name, role FROM users', [], ( err, rows ) =>
+    try
     {
-        if ( err ) return res.status( 500 ).json( { error: err.message } );
-        res.json( rows );
-    } );
+        const users = await getAllUsers();
+        res.json( users );
+    } catch ( err )
+    {
+        res.status( 500 ).json( { error: err.message } );
+    }
 } );
 
 // --- App settings for Owner: weekly off, ad-hoc offs, holidays ---
-app.get( '/admin/settings/app', requireOwner, ( req, res ) =>
+app.get( '/admin/settings/app', requireOwner, async ( req, res ) =>
 {
-    // return desktop_enabled, weekly_off_mode, ad_hoc_offs, holidays
-    db.get( "SELECT value FROM settings WHERE name = ?", [ 'desktop_enabled' ], ( err, drow ) =>
+    try
     {
-        if ( err ) return res.status( 500 ).json( { error: err.message } );
-        const desktop_enabled = drow && drow.value ? drow.value === '1' : true;
-        db.get( "SELECT value FROM settings WHERE name = ?", [ 'weekly_off_mode' ], ( err2, wrow ) =>
-        {
-            if ( err2 ) return res.status( 500 ).json( { error: err2.message } );
-            const weekly_off_mode = wrow && wrow.value ? wrow.value : '1';
-            db.all( 'SELECT id, date, reason, created_by, created_at FROM ad_hoc_offs ORDER BY date ASC', [], ( err3, adhocs ) =>
-            {
-                if ( err3 ) return res.status( 500 ).json( { error: err3.message } );
-                db.all( 'SELECT id, name, month_day, date FROM holidays ORDER BY month_day ASC, date ASC', [], ( err4, hols ) =>
-                {
-                    if ( err4 ) return res.status( 500 ).json( { error: err4.message } );
-                    return res.json( { desktop_enabled, weekly_off_mode, ad_hoc_offs: adhocs || [], holidays: hols || [] } );
-                } );
-            } );
-        } );
-    } );
+        // Get settings using module
+        const settings = await getSettings( [ 'desktop_enabled', 'weekly_off_mode' ] );
+        const desktop_enabled = settings.desktop_enabled === '1';
+        const weekly_off_mode = settings.weekly_off_mode || '1';
+
+        // Get ad-hoc offs and holidays
+        const adhocPromise = new Promise( ( resolve, reject ) => db.all( 'SELECT id, date, reason, created_by, created_at FROM ad_hoc_offs ORDER BY date ASC', [], ( err, rows ) => err ? reject( err ) : resolve( rows || [] ) ) );
+        const holidaysPromise = new Promise( ( resolve, reject ) => db.all( 'SELECT id, name, month_day, date FROM holidays ORDER BY month_day ASC, date ASC', [], ( err, rows ) => err ? reject( err ) : resolve( rows || [] ) ) );
+
+        const [ adhocs, hols ] = await Promise.all( [ adhocPromise, holidaysPromise ] );
+
+        return res.json( { desktop_enabled, weekly_off_mode, ad_hoc_offs: adhocs, holidays: hols } );
+    } catch ( error )
+    {
+        return res.status( 500 ).json( { error: error.message } );
+    }
 } );
 
 // Get current permanent test-date override (owner only)
@@ -1331,14 +1177,16 @@ app.get( '/admin/settings/test-date', requireOwner, ( req, res ) =>
 } );
 
 // Set/clear permanent test-date override (owner only)
-app.post( '/admin/settings/test-date', requireOwner, ( req, res ) =>
+app.post( '/admin/settings/test-date', requireOwner, async ( req, res ) =>
 {
-    const { test_date } = req.body || {};
-    if ( test_date && !moment( test_date, 'YYYY-MM-DD', true ).isValid() ) return res.status( 400 ).json( { success: false, message: 'Please use YYYY-MM-DD format (like 2025-12-25).' } );
-    const value = test_date ? test_date : '';
-    db.run( 'INSERT OR REPLACE INTO settings (name, value) VALUES (?, ?)', [ 'test_date_override', value ], function ( err )
+    try
     {
-        if ( err ) return res.status( 500 ).json( { success: false, message: err.message } );
+        const { test_date } = req.body || {};
+        if ( test_date && !moment( test_date, 'YYYY-MM-DD', true ).isValid() ) return res.status( 400 ).json( { success: false, message: 'Please use YYYY-MM-DD format (like 2025-12-25).' } );
+        const value = test_date ? test_date : '';
+
+        await updateSetting( 'test_date_override', value );
+
         // update cache
         req.app.locals.testDateOverride = value;
         if ( value )
@@ -1349,28 +1197,39 @@ app.post( '/admin/settings/test-date', requireOwner, ( req, res ) =>
             console.log( `${ req.session.user.name } cleared the application test date override` );
         }
         return res.json( { success: true, test_date: value || null } );
-    } );
+    } catch ( err )
+    {
+        return res.status( 500 ).json( { success: false, message: err.message } );
+    }
 } );
 
 // Update general app settings (owner only)
-app.post( '/admin/settings/app', requireOwner, ( req, res ) =>
+app.post( '/admin/settings/app', requireOwner, async ( req, res ) =>
 {
-    const { desktop_enabled, weekly_off_mode } = req.body || {};
-    // validate weekly_off_mode
-    // Supported modes: 1 (Sundays), 2 (Sundays+Saturdays), 3 (Sundays + 2nd & 4th Saturdays)
-    const allowed = [ '1', '2', '3' ];
-    const mode = ( '' + ( weekly_off_mode || '1' ) ).trim();
-    if ( allowed.indexOf( mode ) === -1 ) return res.status( 400 ).json( { success: false, message: 'Please choose a valid weekly off mode (1, 2, or 3).' } );
+    try
+    {
+        const { desktop_enabled, weekly_off_mode } = req.body || {};
+        // validate weekly_off_mode
+        // Supported modes: 1 (Sundays), 2 (Sundays+Saturdays), 3 (Sundays + 2nd & 4th Saturdays)
+        const allowed = [ '1', '2', '3' ];
+        const mode = ( '' + ( weekly_off_mode || '1' ) ).trim();
+        if ( allowed.indexOf( mode ) === -1 ) return res.status( 400 ).json( { success: false, message: 'Please choose a valid weekly off mode (1, 2, or 3).' } );
 
-    const enabled = ( desktop_enabled === true || desktop_enabled === '1' || desktop_enabled === 1 ) ? '1' : '0';
-    db.run( 'INSERT OR REPLACE INTO settings (name, value) VALUES (?, ?)', [ 'desktop_enabled', enabled ] );
-    db.run( 'INSERT OR REPLACE INTO settings (name, value) VALUES (?, ?)', [ 'weekly_off_mode', mode ] );
-    const desktopText = ( enabled === '1' ) ? 'Desktop access is now on for team members' : 'Desktop access is now off - mobile only';
-    let weeklyText = 'Weekly offs: Sundays';
-    if ( mode === '2' ) weeklyText = 'Weekly offs: Sundays & Saturdays';
-    else if ( mode === '3' ) weeklyText = 'Weekly offs: Sundays + 2nd & 4th Saturdays';
-    console.log( `${ req.session.user.name } updated app settings: ${ desktopText }; ${ weeklyText }.` );
-    return res.json( { success: true, message: 'Settings saved! All updated. ✅' } );
+        const enabled = ( desktop_enabled === true || desktop_enabled === '1' || desktop_enabled === 1 ) ? '1' : '0';
+
+        await updateSetting( 'desktop_enabled', enabled );
+        await updateSetting( 'weekly_off_mode', mode );
+
+        const desktopText = ( enabled === '1' ) ? 'Desktop access is now on for team members' : 'Desktop access is now off - mobile only';
+        let weeklyText = 'Weekly offs: Sundays';
+        if ( mode === '2' ) weeklyText = 'Weekly offs: Sundays & Saturdays';
+        else if ( mode === '3' ) weeklyText = 'Weekly offs: Sundays + 2nd & 4th Saturdays';
+        console.log( `${ req.session.user.name } updated app settings: ${ desktopText }; ${ weeklyText }.` );
+        return res.json( { success: true, message: 'Settings saved! All updated. ✅' } );
+    } catch ( err )
+    {
+        return res.status( 500 ).json( { success: false, message: err.message } );
+    }
 } );
 
 // Add ad-hoc off (owner only). date must be > today (at least one day ahead)
@@ -1384,10 +1243,9 @@ app.post( '/admin/settings/app/ad-hoc/add', requireOwner, ( req, res ) =>
     if ( !m.isAfter( moment(), 'day' ) ) return res.status( 400 ).json( { success: false, message: 'Ad-hoc off must be declared at least one day before.' } );
 
     // Check if date is already a weekly off
-    db.get( 'SELECT value FROM settings WHERE name = ?', [ 'weekly_off_mode' ], ( err, row ) =>
+    getSetting( 'weekly_off_mode' ).then( ( value ) =>
     {
-        if ( err ) return res.status( 500 ).json( { success: false, message: err.message } );
-        const mode = row && row.value ? row.value : '1';
+        const mode = value || '1';
         const dow = m.day(); // 0=Sunday, 6=Saturday
 
         let isWeeklyOff = false;
@@ -1414,7 +1272,7 @@ app.post( '/admin/settings/app/ad-hoc/add', requireOwner, ( req, res ) =>
             console.log( `${ req.session.user.name } declared ad-hoc off on ${ formatDateForDisplay( date ) }${ r ? ` — reason: ${ r }` : '' }` );
             return res.json( { success: true } );
         } );
-    } );
+    } ).catch( ( err ) => res.status( 500 ).json( { success: false, message: err.message } ) );
 } );
 
 // Remove ad-hoc off (owner only)
@@ -1467,10 +1325,9 @@ app.post( '/admin/settings/app/holidays/add', requireOwner, ( req, res ) =>
     }
 
     // Check if the date falls on a weekly off
-    db.get( 'SELECT value FROM settings WHERE name = ?', [ 'weekly_off_mode' ], ( err, row ) =>
+    getSetting( 'weekly_off_mode' ).then( ( value ) =>
     {
-        if ( err ) return res.status( 500 ).json( { success: false, message: err.message } );
-        const mode = row && row.value ? row.value : '1';
+        const mode = value || '1';
         const dow = checkDate.day(); // 0=Sunday, 6=Saturday
 
         let isWeeklyOff = false;
@@ -1505,7 +1362,7 @@ app.post( '/admin/settings/app/holidays/add', requireOwner, ( req, res ) =>
             console.log( `${ req.session.user.name } added holiday '${ name }' — ${ dateText }` );
             return res.json( { success: true } );
         } );
-    } );
+    } ).catch( ( err ) => res.status( 500 ).json( { success: false, message: err.message } ) );
 } );
 
 // Remove holiday (owner only)
@@ -1540,28 +1397,21 @@ app.post( '/admin/settings/app/holidays/remove', requireOwner, ( req, res ) =>
 // --- BRANDING ENDPOINTS ---
 
 // Get branding settings (public endpoint - no auth required)
-app.get( '/branding', ( req, res ) =>
+app.get( '/branding', async ( req, res ) =>
 {
-    db.get( "SELECT value FROM settings WHERE name = ?", [ 'company_logo' ], ( err1, logoRow ) =>
+    try
     {
-        if ( err1 ) return res.status( 500 ).json( { success: false } );
+        const settings = await getSettings( [ 'company_logo', 'brand_color', 'company_name' ] );
 
-        db.get( "SELECT value FROM settings WHERE name = ?", [ 'brand_color' ], ( err2, colorRow ) =>
-        {
-            if ( err2 ) return res.status( 500 ).json( { success: false } );
-
-            db.get( "SELECT value FROM settings WHERE name = ?", [ 'company_name' ], ( err3, nameRow ) =>
-            {
-                if ( err3 ) return res.status( 500 ).json( { success: false } );
-
-                res.json( {
-                    logo: logoRow?.value || '',
-                    brandColor: colorRow?.value || '#0ea5a4',
-                    companyName: nameRow?.value || 'Attendance System'
-                } );
-            } );
+        res.json( {
+            logo: settings.company_logo || '',
+            brandColor: settings.brand_color || '#0ea5a4',
+            companyName: settings.company_name || 'Attendance System'
         } );
-    } );
+    } catch ( err )
+    {
+        return res.status( 500 ).json( { success: false } );
+    }
 } );
 
 // Upload company logo (owner only)
@@ -1615,19 +1465,13 @@ app.post( '/admin/settings/logo', requireOwner, async ( req, res ) =>
         const logoPath = `/logos/${ filename }`;
 
         // Update database
-        db.run( "UPDATE settings SET value = ? WHERE name = ?", [ logoPath, 'company_logo' ], ( err ) =>
-        {
-            if ( err )
-            {
-                return res.status( 500 ).json( { success: false, message: 'Failed to save logo to database.' } );
-            }
+        await updateSetting( 'company_logo', logoPath );
 
-            console.log( `${ req.session.user.name } uploaded company logo: ${ logoPath } (${ Math.round( compressedSizeKB ) }KB)` );
-            res.json( {
-                success: true,
-                message: `Logo uploaded successfully! (Compressed to ${ Math.round( compressedSizeKB ) }KB)`,
-                logoPath
-            } );
+        console.log( `${ req.session.user.name } uploaded company logo: ${ logoPath } (${ Math.round( compressedSizeKB ) }KB)` );
+        res.json( {
+            success: true,
+            message: `Logo uploaded successfully! (Compressed to ${ Math.round( compressedSizeKB ) }KB)`,
+            logoPath
         } );
     }
     catch ( error )
@@ -1635,18 +1479,22 @@ app.post( '/admin/settings/logo', requireOwner, async ( req, res ) =>
         console.error( 'Logo upload error:', error );
         res.status( 500 ).json( { success: false, message: 'Failed to process logo upload. Please try a different image.' } );
     }
-} );// Remove company logo (owner only)
-app.post( '/admin/settings/logo/remove', requireOwner, ( req, res ) =>
+} );
+
+// Remove company logo (owner only)
+app.post( '/admin/settings/logo/remove', requireOwner, async ( req, res ) =>
 {
-    db.get( "SELECT value FROM settings WHERE name = ?", [ 'company_logo' ], ( err, row ) =>
+    try
     {
-        if ( err || !row || !row.value )
+        const logoValue = await getSetting( 'company_logo' );
+
+        if ( !logoValue )
         {
             return res.json( { success: true, message: 'No logo to remove.' } );
         }
 
         // Delete file if exists
-        const logoPath = row.value.replace( '/logos/', '' );
+        const logoPath = logoValue.replace( '/logos/', '' );
         const filepath = path.join( logosDir, logoPath );
 
         if ( fs.existsSync( filepath ) )
@@ -1655,21 +1503,18 @@ app.post( '/admin/settings/logo/remove', requireOwner, ( req, res ) =>
         }
 
         // Clear database
-        db.run( "UPDATE settings SET value = ? WHERE name = ?", [ '', 'company_logo' ], ( updateErr ) =>
-        {
-            if ( updateErr )
-            {
-                return res.status( 500 ).json( { success: false, message: 'Failed to remove logo.' } );
-            }
+        await updateSetting( 'company_logo', '' );
 
-            console.log( `${ req.session.user.name } removed company logo` );
-            res.json( { success: true, message: 'Logo removed successfully!' } );
-        } );
-    } );
+        console.log( `${ req.session.user.name } removed company logo` );
+        res.json( { success: true, message: 'Logo removed successfully!' } );
+    } catch ( err )
+    {
+        return res.status( 500 ).json( { success: false, message: 'Failed to remove logo.' } );
+    }
 } );
 
 // Update brand color (owner only)
-app.post( '/admin/settings/brand-color', requireOwner, ( req, res ) =>
+app.post( '/admin/settings/brand-color', requireOwner, async ( req, res ) =>
 {
     const { color } = req.body;
 
@@ -1679,79 +1524,79 @@ app.post( '/admin/settings/brand-color', requireOwner, ( req, res ) =>
         return res.status( 400 ).json( { success: false, message: 'Please provide a valid hex color (e.g., #0ea5a4).' } );
     }
 
-    db.run( "UPDATE settings SET value = ? WHERE name = ?", [ color, 'brand_color' ], ( err ) =>
+    try
     {
-        if ( err )
-        {
-            return res.status( 500 ).json( { success: false, message: 'Failed to update brand color.' } );
-        }
+        await updateSetting( 'brand_color', color );
 
         console.log( `${ req.session.user.name } updated brand color to ${ color }` );
         res.json( { success: true, message: 'Brand color updated successfully!' } );
-    } );
+    } catch ( err )
+    {
+        return res.status( 500 ).json( { success: false, message: 'Failed to update brand color.' } );
+    }
 } );
 
 // Update company name (owner only)
-app.post( '/admin/settings/company-name', requireOwner, ( req, res ) =>
+app.post( '/admin/settings/company-name', requireOwner, async ( req, res ) =>
 {
-    const { name } = req.body;
-    const companyName = ( name || '' ).trim();
-
-    if ( !companyName )
+    try
     {
-        return res.status( 400 ).json( { success: false, message: 'Please provide a company name.' } );
-    }
+        const { name } = req.body;
+        const companyName = ( name || '' ).trim();
 
-    db.run( "UPDATE settings SET value = ? WHERE name = ?", [ companyName, 'company_name' ], ( err ) =>
-    {
-        if ( err )
+        if ( !companyName )
         {
-            return res.status( 500 ).json( { success: false, message: 'Failed to update company name.' } );
+            return res.status( 400 ).json( { success: false, message: 'Please provide a company name.' } );
         }
+
+        await updateSetting( 'company_name', companyName );
 
         console.log( `${ req.session.user.name } updated company name to "${ companyName }"` );
         res.json( { success: true, message: 'Company name updated successfully!' } );
-    } );
+    } catch ( err )
+    {
+        return res.status( 500 ).json( { success: false, message: 'Failed to update company name.' } );
+    }
 } );
 
 // Reset brand color to default (owner only)
-app.post( '/admin/settings/brand-color/reset', requireOwner, ( req, res ) =>
+app.post( '/admin/settings/brand-color/reset', requireOwner, async ( req, res ) =>
 {
-    const defaultColor = '#0ea5a4';
-
-    db.run( "UPDATE settings SET value = ? WHERE name = ?", [ defaultColor, 'brand_color' ], ( err ) =>
+    try
     {
-        if ( err )
-        {
-            return res.status( 500 ).json( { success: false, message: 'Failed to reset brand color.' } );
-        }
+        const defaultColor = '#0ea5a4';
+
+        await updateSetting( 'brand_color', defaultColor );
 
         console.log( `${ req.session.user.name } reset brand color to default` );
         res.json( { success: true, message: 'Brand color reset to default!', color: defaultColor } );
-    } );
+    } catch ( err )
+    {
+        return res.status( 500 ).json( { success: false, message: 'Failed to reset brand color.' } );
+    }
 } );
 
 // Reset company name to default (owner only)
-app.post( '/admin/settings/company-name/reset', requireOwner, ( req, res ) =>
+app.post( '/admin/settings/company-name/reset', requireOwner, async ( req, res ) =>
 {
-    const defaultName = 'Attendance System';
-
-    db.run( "UPDATE settings SET value = ? WHERE name = ?", [ defaultName, 'company_name' ], ( err ) =>
+    try
     {
-        if ( err )
-        {
-            return res.status( 500 ).json( { success: false, message: 'Failed to reset company name.' } );
-        }
+        const defaultName = 'Attendance System';
+
+        await updateSetting( 'company_name', defaultName );
 
         console.log( `${ req.session.user.name } reset company name to default` );
         res.json( { success: true, message: 'Company name reset to default!', name: defaultName } );
-    } );
+    } catch ( err )
+    {
+        return res.status( 500 ).json( { success: false, message: 'Failed to reset company name.' } );
+    }
 } );
 
 // Desktop access toggle now managed via /admin/settings/app (owner-only)
 
 // Add new user (admins only)
-app.post( '/admin/users/add', requireAdmin, ( req, res ) =>
+app.post( '/admin/users/add', requireAdmin, async ( req, res ) =>
 {
     const { name, password, role } = req.body;
     const username = ( name || '' ).trim();
@@ -1764,10 +1609,10 @@ app.post( '/admin/users/add', requireAdmin, ( req, res ) =>
         return res.status( 400 ).json( { success: false, message: 'Please use only letters, numbers, and underscores (no spaces).' } );
     }
 
-    db.get( 'SELECT name FROM users WHERE name = ?', [ username ], ( err, row ) =>
+    try
     {
-        if ( err ) return res.status( 500 ).json( { success: false, message: err.message } );
-        if ( row ) return res.status( 400 ).json( { success: false, message: 'This username is taken. Please try a different one.' } );
+        const existingUser = await getUserByName( username );
+        if ( existingUser ) return res.status( 400 ).json( { success: false, message: 'This username is taken. Please try a different one.' } );
 
         const joinDate = moment().format( 'YYYY-MM-DD' );
         // Prevent managers from creating owners or other managers
@@ -1776,44 +1621,46 @@ app.post( '/admin/users/add', requireAdmin, ( req, res ) =>
             return res.status( 403 ).json( { success: false, message: 'Only the system owner can add managers or other owners.' } );
         }
 
-        try
-        {
-            const pwdHash = bcrypt.hashSync( pwd, SALT_ROUNDS );
-            db.run( 'INSERT INTO users (name, password, role, join_date) VALUES (?, ?, ?, ?)', [ username, pwdHash, userRole, joinDate ], function ( insertErr )
-            {
-                if ( insertErr ) return res.status( 500 ).json( { success: false, message: insertErr.message } );
+        // Create user with hashed password
+        await createUser( username, pwd, userRole, joinDate );
 
-                // Create attendance table for the user unless owner
-                if ( userRole !== 'owner' )
-                {
-                    db.run( `CREATE TABLE IF NOT EXISTS attendance_${ username } (
+        // Create attendance table for the user unless owner
+        if ( userRole !== 'owner' )
+        {
+            await new Promise( ( resolve, reject ) =>
+            {
+                db.run( `CREATE TABLE IF NOT EXISTS attendance_${ username } (
                     date TEXT PRIMARY KEY,
                     in_time TEXT, in_latitude REAL, in_longitude REAL, in_selfie_path TEXT,
                     out_time TEXT, out_latitude REAL, out_longitude REAL, out_selfie_path TEXT
                 )`, ( tableErr ) =>
+                {
+                    if ( tableErr )
                     {
-                        if ( tableErr ) console.error( 'Error creating attendance table for', username, tableErr.message );
-                    } );
-                }
-
-                // Ensure selfie directory exists
-                try
-                {
-                    const userSelfieDir = path.join( selfiesDir, username );
-                    if ( !fs.existsSync( userSelfieDir ) ) fs.mkdirSync( userSelfieDir );
-                } catch ( fsErr )
-                {
-                    console.error( 'Error creating selfie dir for', username, fsErr.message );
-                }
-
-                console.log( `Admin ${ req.session.user.name } added user ${ username } with role ${ userRole }` );
-                res.json( { success: true, message: 'Team member added! They can now sign in. 🎉' } );
+                        console.error( 'Error creating attendance table for', username, tableErr.message );
+                        return reject( tableErr );
+                    }
+                    resolve();
+                } );
             } );
-        } catch ( e )
-        {
-            return res.status( 500 ).json( { success: false, message: 'Error hashing password.' } );
         }
-    } );
+
+        // Ensure selfie directory exists
+        try
+        {
+            const userSelfieDir = path.join( selfiesDir, username );
+            if ( !fs.existsSync( userSelfieDir ) ) fs.mkdirSync( userSelfieDir );
+        } catch ( fsErr )
+        {
+            console.error( 'Error creating selfie dir for', username, fsErr.message );
+        }
+
+        console.log( `Admin ${ req.session.user.name } added user ${ username } with role ${ userRole }` );
+        res.json( { success: true, message: 'Team member added! They can now sign in. 🎉' } );
+    } catch ( e )
+    {
+        return res.status( 500 ).json( { success: false, message: e.message || 'Error creating user.' } );
+    }
 } );
 
 app.get( '/admin/attendance/:username', requireAdmin, ( req, res ) =>
@@ -1893,14 +1740,23 @@ app.get( '/admin/leaves/history', requireAdmin, ( req, res ) =>
     } );
 } );
 
-app.post( '/admin/leaves/action', requireAdmin, ( req, res ) =>
+app.post( '/admin/leaves/action', requireAdmin, async ( req, res ) =>
 {
     const { leave_id, status } = req.body;
     const admin = req.session.user;
 
-    db.get( 'SELECT l.*, u.role FROM leaves l JOIN users u ON l.username = u.name WHERE l.leave_id = ?', [ leave_id ], ( err, leave ) =>
+    try
     {
-        if ( err || !leave ) return res.status( 404 ).send( 'Leave request not found.' );
+        const leave = await new Promise( ( resolve, reject ) =>
+        {
+            db.get( 'SELECT l.*, u.role FROM leaves l JOIN users u ON l.username = u.name WHERE l.leave_id = ?', [ leave_id ], ( err, row ) =>
+            {
+                if ( err ) return reject( err );
+                resolve( row );
+            } );
+        } );
+
+        if ( !leave ) return res.status( 404 ).send( 'Leave request not found.' );
 
         // Prevent actions on withdrawn/taken-back requests
         if ( leave.taken_back )
@@ -1928,16 +1784,24 @@ app.post( '/admin/leaves/action', requireAdmin, ( req, res ) =>
         if ( status === 'approved' )
         {
             const leaveDuration = moment( leave.end_date ).diff( moment( leave.start_date ), 'days' ) + 1;
-            db.run( 'UPDATE users SET leave_balance = leave_balance - ? WHERE name = ?', [ leaveDuration, leave.username ] );
+            await deductLeaveBalance( leave.username, leaveDuration );
         }
 
-        db.run( 'UPDATE leaves SET status = ?, approved_by = ? WHERE leave_id = ?', [ status, admin.name, leave_id ], function ( err )
+        await new Promise( ( resolve, reject ) =>
         {
-            if ( err ) return res.status( 500 ).send( 'Something went wrong. Please try processing this request again.' );
-            console.log( `${ admin.name } ${ status } leave for ${ leave.username } from dates ${ formatDateForDisplay( leave.start_date ) } to ${ formatDateForDisplay( leave.end_date ) }` );
-            res.sendStatus( 200 );
+            db.run( 'UPDATE leaves SET status = ?, approved_by = ? WHERE leave_id = ?', [ status, admin.name, leave_id ], function ( err )
+            {
+                if ( err ) return reject( err );
+                resolve();
+            } );
         } );
-    } );
+
+        console.log( `${ admin.name } ${ status } leave for ${ leave.username } from dates ${ formatDateForDisplay( leave.start_date ) } to ${ formatDateForDisplay( leave.end_date ) }` );
+        res.sendStatus( 200 );
+    } catch ( err )
+    {
+        return res.status( 500 ).send( 'Something went wrong. Please try processing this request again.' );
+    }
 } );
 
 // --- SERVER START ---
@@ -1947,7 +1811,7 @@ app.post( '/admin/leaves/action', requireAdmin, ( req, res ) =>
 //} );
 
 // Admin: reset passwords for a group of users
-app.post( '/admin/users/reset-password', requireAdmin, ( req, res ) =>
+app.post( '/admin/users/reset-password', requireAdmin, async ( req, res ) =>
 {
     const { username, password } = req.body;
     const newPwd = ( password && password.trim() ) ? password.trim() : '111';
@@ -1958,12 +1822,11 @@ app.post( '/admin/users/reset-password', requireAdmin, ( req, res ) =>
         return res.status( 400 ).json( { success: false, message: 'Please select a team member to reset.' } );
     }
 
-    const target = username.trim();
-    db.get( 'SELECT role FROM users WHERE name = ?', [ target ], ( err, row ) =>
+    try
     {
-        if ( err ) return res.status( 500 ).json( { success: false, message: err.message } );
-        if ( !row ) return res.status( 404 ).json( { success: false, message: 'We couldn\'t find that team member.' } );
-        const targetRole = row.role;
+        const target = username.trim();
+        const targetRole = await getUserRole( target );
+        if ( !targetRole ) return res.status( 404 ).json( { success: false, message: 'We couldn\'t find that team member.' } );
 
         // Permission checks
         if ( requesterRole === 'owner' )
@@ -1978,23 +1841,16 @@ app.post( '/admin/users/reset-password', requireAdmin, ( req, res ) =>
             return res.status( 403 ).json( { success: false, message: 'You\'re not authorized to do this.' } );
         }
 
-        try
-        {
-            const newHash = bcrypt.hashSync( newPwd, SALT_ROUNDS );
-            db.run( 'UPDATE users SET password = ? WHERE name = ?', [ newHash, target ], function ( updateErr )
-            {
-                if ( updateErr ) return res.status( 500 ).json( { success: false, message: updateErr.message } );
-                return res.json( { success: true, message: `Password reset for ${ target }. Their new password is: ${ newPwd }` } );
-            } );
-        } catch ( e )
-        {
-            return res.status( 500 ).json( { success: false, message: 'Error hashing new password.' } );
-        }
-    } );
+        await updatePassword( target, newPwd );
+        return res.json( { success: true, message: `Password reset for ${ target }. Their new password is: ${ newPwd }` } );
+    } catch ( e )
+    {
+        return res.status( 500 ).json( { success: false, message: e.message || 'Error resetting password.' } );
+    }
 } );
 
 // User: change own password
-app.post( '/user/change-password', requireLogin, ( req, res ) =>
+app.post( '/user/change-password', requireLogin, async ( req, res ) =>
 {
     const { old_password, new_password } = req.body;
     const username = req.session.user.name;
@@ -2004,10 +1860,10 @@ app.post( '/user/change-password', requireLogin, ( req, res ) =>
         return res.status( 400 ).json( { success: false, message: 'Please enter a new password.' } );
     }
 
-    db.get( 'SELECT password FROM users WHERE name = ?', [ username ], ( err, row ) =>
+    try
     {
-        if ( err ) return res.status( 500 ).json( { success: false, message: err.message } );
-        if ( !row ) return res.status( 404 ).json( { success: false, message: 'User not found.' } );
+        const user = await getUserByName( username );
+        if ( !user ) return res.status( 404 ).json( { success: false, message: 'User not found.' } );
 
         // If old_password provided, verify it. If not provided, require it for safety.
         if ( !old_password )
@@ -2015,26 +1871,19 @@ app.post( '/user/change-password', requireLogin, ( req, res ) =>
             return res.status( 400 ).json( { success: false, message: 'Please enter your current password to confirm.' } );
         }
 
-        if ( !bcrypt.compareSync( ( old_password || '' ).toString(), row.password ) )
+        if ( !verifyPassword( ( old_password || '' ).toString(), user.password ) )
         {
             return res.status( 400 ).json( { success: false, message: 'Hmm, that current password doesn\'t match. Please try again.' } );
         }
 
-        try
-        {
-            const newHash = bcrypt.hashSync( new_password.trim(), SALT_ROUNDS );
-            db.run( 'UPDATE users SET password = ? WHERE name = ?', [ newHash, username ], function ( updateErr )
-            {
-                if ( updateErr ) return res.status( 500 ).json( { success: false, message: updateErr.message } );
-                // Update session copy: do not store password in session
-                if ( req.session.user ) req.session.user = { name: username, role: req.session.user.role };
-                return res.json( { success: true, message: 'Password updated! All set. ✅' } );
-            } );
-        } catch ( e )
-        {
-            return res.status( 500 ).json( { success: false, message: 'Error hashing new password.' } );
-        }
-    } );
+        await updatePassword( username, new_password.trim() );
+        // Update session copy: do not store password in session
+        if ( req.session.user ) req.session.user = { name: username, role: req.session.user.role };
+        return res.json( { success: true, message: 'Password updated! All set. ✅' } );
+    } catch ( e )
+    {
+        return res.status( 500 ).json( { success: false, message: e.message || 'Error updating password.' } );
+    }
 } );
 
 // Normalize or redirect invalid dashboard subpaths to the main dashboard
