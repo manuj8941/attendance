@@ -475,3 +475,90 @@ a
     width: auto;
     padding: 8px 12px;
 }
+
+/* Bottom Navigation Bar - Compact */
+.bottom-nav
+{
+    position: fixed;
+    bottom: 0;
+    left: 0;
+    right: 0;
+    background: #ffffff;
+    border-top: 1px solid var(--border);
+    box-shadow: 0 -2px 10px rgba(0, 0, 0, 0.1);
+    padding: 6px 0;
+    padding-bottom: max(6px, env(safe-area-inset-bottom));
+    z-index: 1000;
+    display: flex;
+    justify-content: center;
+    height: 30px
+}
+
+.bottom-nav-container
+{
+    width: 100%;
+    max-width: 420px;
+    display: flex;
+    justify-content: space-around;
+    align-items: center;
+    padding: 0 8%;
+}
+
+.bottom-nav-item
+{
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    text-decoration: none;
+    color: #64748b;
+    transition: all 0.2s ease;
+    padding: 2px 8px;
+    border-radius: 8px;
+    min-width: 50px;
+}
+
+.bottom-nav-item i
+{
+    font-size: 1.2rem;
+    margin-bottom: 0;
+}
+
+.bottom-nav-item:hover
+{
+    background: #f1f5f9;
+    color: var(--accent);
+}
+
+.bottom-nav-item.active
+{
+    color: var(--accent);
+    background: #e0f2f1;
+}
+
+/* Proper approach: Reserve space for bottom nav without breaking centering */
+html
+{
+    height: 100%;
+    margin: 0;
+    padding: 0;
+}
+
+body
+{
+    min-height: 100%;
+    margin: 0;
+    padding: 1rem;
+    padding-bottom: calc(50px + env(safe-area-inset-bottom, 0px) + 1rem);
+    box-sizing: border-box;
+    overflow-x: hidden;
+    display: flex;
+    justify-content: center;
+}
+
+.container
+{
+    width: 100%;
+    max-width: var(--container-max-width);
+    background: transparent;
+}

@@ -16,10 +16,7 @@
     <body>
         <div class="container">
             <h1><i class="fas fa-user-shield"></i> Team Management</h1>
-            <p>Welcome, <strong id="admin-name"></strong>! (<span id="admin-role"></span>) <span
-                    id="back-link-container"></span> | <a href="/visual"><i class="fas fa-calendar-alt"></i> Visual
-                    Calendar</a> | <a href="/profile"><i class="fas fa-user-circle"></i> Profile</a> | <a
-                    href="/logout"><i class="fas fa-sign-out-alt"></i> Logout</a></p>
+            <p>Welcome, <strong id="admin-name"></strong>! (<span id="admin-role"></span>)</p>
 
             <!-- Owner settings accessible from App Settings -->
             <!-- Test Date Override was moved to App Settings page -->
@@ -132,41 +129,6 @@
                 currentUser = await userRes.json();
                 document.getElementById( 'admin-name' ).textContent = currentUser.name;
                 document.getElementById( 'admin-role' ).textContent = currentUser.role.replace( '_', ' ' );
-
-                // Owner gets quick App Settings link
-                if ( currentUser && currentUser.role === 'owner' )
-                {
-                    const container = document.getElementById( 'back-link-container' );
-                    if ( container ) container.innerHTML = ' | <a href="/appsettings"><i class="fas fa-cog"></i> App Settings</a>';
-                    // show owner-only test-date override section
-                    const tsec = document.getElementById( 'test-date-section' );
-                    if ( tsec ) tsec.style.display = '';
-                }
-                else
-                {
-                    // ensure non-owners (e.g. managers) do not see the test-date section
-                    const tsec = document.getElementById( 'test-date-section' );
-                    if ( tsec ) tsec.style.display = 'none';
-                }
-
-                // Profile link in header
-                const header = document.querySelector( 'p' );
-                if ( header )
-                {
-                    // ensure profile link is present without duplicating
-                    const profileLink = header.querySelector( 'a[href="/profile"]' );
-                    if ( !profileLink )
-                    {
-                        header.innerHTML = header.innerHTML.replace( '| <a href="/logout">Logout</a>', '| <a href="/profile">Profile</a> | <a href="/logout">Logout</a>' );
-                    }
-                }
-
-                // Show Back to Dashboard link for managers (they should be able to return to attendance UI)
-                if ( currentUser && currentUser.role === 'manager' )
-                {
-                    const container = document.getElementById( 'back-link-container' );
-                    if ( container ) container.innerHTML = ' | <a href="/dashboard"><i class="fas fa-home"></i> Back to Dashboard</a>';
-                }
 
                 // Load all necessary data
                 await loadLeaveRequests();
@@ -504,6 +466,15 @@
         </script>
         <script src="/js/ui.js"></script>
         <script src="/js/flatpickr.min.js"></script>
+        <script src="/js/bottom-nav.js"></script>
+        <script>
+            window.addEventListener( 'load', async () =>
+            {
+                const userRes = await fetch( '/user/me' );
+                const user = await userRes.json();
+                initBottomNav( 'admin', user.role );
+            } );
+        </script>
     </body>
 
 </html>

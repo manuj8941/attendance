@@ -16,8 +16,7 @@
     <body>
         <div class="container">
             <h1><i class="fas fa-cog"></i> System Settings</h1>
-            <p>Manage your attendance system. <a href="/dashboard"><i class="fas fa-home"></i> Back</a> | <a
-                    href="/logout"><i class="fas fa-sign-out-alt"></i> Logout</a></p>
+            <p>Manage your attendance system.</p>
 
             <div class="section">
                 <h2><i class="fas fa-desktop"></i> Desktop Access Control</h2>
@@ -350,6 +349,14 @@
             </script>
             <script src="/js/ui.js"></script>
             <script src="/js/flatpickr.min.js"></script>
+            <script src="/js/bottom-nav.js"></script>
+            <script>
+                window.addEventListener( 'load', () =>
+                {
+                    // App settings is owner-only, so always use 'owner' role
+                    initBottomNav( 'appsettings', 'owner' );
+                } );
+            </script>
     </body>
 
 </html>

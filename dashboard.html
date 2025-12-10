@@ -19,10 +19,7 @@
 
         <div class="container">
             <h1><i class="fas fa-th-large"></i> Dashboard</h1>
-            <p>Welcome, <strong id="user-name"></strong>! | <a href="/visual"><i class="fas fa-calendar-alt"></i> My
-                    Calendar</a> | <a href="/profile"><i class="fas fa-user-circle"></i> Profile</a> | <a
-                    href="/logout"><i class="fas fa-sign-out-alt"></i> Logout</a><span id="admin-link-container"></span>
-            </p>
+            <p>Welcome, <strong id="user-name"></strong>!</p>
 
             <!-- Attendance Marking Section -->
             <div class="section" id="attendance-section">
@@ -121,12 +118,6 @@
                 const userRes = await fetch( '/user/me' );
                 const currentUser = await userRes.json();
                 document.getElementById( 'user-name' ).textContent = currentUser.name;
-
-                if ( currentUser.role === 'manager' || currentUser.role === 'owner' )
-                {
-                    // Unified dashboard — admin UI is available at /dashboard
-                    document.getElementById( 'admin-link-container' ).innerHTML = ' | <a href="/admin"><i class="fas fa-user-shield"></i> Admin Panel</a>';
-                }
 
                 // Load all parts of the dashboard
                 loadAttendanceMarker( currentUser );
@@ -834,6 +825,16 @@
         </script>
         <script src="/js/ui.js"></script>
         <script src="/js/flatpickr.min.js"></script>
+        <script src="/js/bottom-nav.js"></script>
+        <script>
+            // Initialize bottom navigation after user data is loaded
+            window.addEventListener( 'load', async () =>
+            {
+                const userRes = await fetch( '/user/me' );
+                const user = await userRes.json();
+                initBottomNav( 'dashboard', user.role );
+            } );
+        </script>
     </body>
 
 </html>
