@@ -1920,28 +1920,83 @@ app.use( ( err, req, res, next ) =>
 // Export the Express app so other wrappers can reuse it
 module.exports = app;
 
-// If this file is run directly, start an HTTPS server using local certs.
-// This allows `node index.js` to start the app over HTTPS for local testing.
+// If this file is run directly, start a server
 if ( require.main === module )
 {
-    const https = require( 'https' );
-    const os = require( 'os' );
-    const keyPath = path.join( __dirname, '192.168.1.9+1-key.pem' );
-    const certPath = path.join( __dirname, '192.168.1.9+1.pem' );
     const PORT = process.env.PORT || 3000;
+    const os = require( 'os' );
 
-    if ( fs.existsSync( keyPath ) && fs.existsSync( certPath ) )
+    // Find certificate files dynamically (any .pem files in project root)
+    const pemFiles = fs.readdirSync( __dirname ).filter( f => f.endsWith( '.pem' ) );
+    const keyFile = pemFiles.find( f => f.includes( '-key' ) );
+    const certFile = pemFiles.find( f => !f.includes( '-key' ) && f.endsWith( '.pem' ) );
+
+    // Check if we're in production or if no certs are available
+    const isProduction = process.env.NODE_ENV === 'production';
+    const hasCerts = keyFile && certFile;
+
+    if ( !isProduction && hasCerts )
     {
-        const key = fs.readFileSync( keyPath );
-        const cert = fs.readFileSync( certPath );
-        https.createServer( { key, cert }, app ).listen( PORT, '0.0.0.0', () =>
+        // Local development with HTTPS (for mobile testing with camera/geolocation)
+        const https = require( 'https' );
+        const keyPath = path.join( __dirname, keyFile );
+        const certPath = path.join( __dirname, certFile );
+
+        try
         {
-            console.log( `HTTPS server running at https://${ os.hostname() }:${ PORT } (listening on 0.0.0.0:${ PORT })` );
-            console.log( `Access by IP: https://192.168.1.9:${ PORT }` );
-        } );
-    } else
+            const key = fs.readFileSync( keyPath );
+            const cert = fs.readFileSync( certPath );
+            https.createServer( { key, cert }, app ).listen( PORT, '0.0.0.0', () =>
+            {
+                // Get local IP address
+                const networkInterfaces = os.networkInterfaces();
+                const localIP = Object.values( networkInterfaces )
+                    .flat()
+                    .find( iface => iface.family === 'IPv4' && !iface.internal )?.address || 'localhost';
+
+                console.log( `✅ HTTPS server running on port ${ PORT }` );
+                console.log( `📱 Access from mobile: https://${ localIP }:${ PORT }` );
+                console.log( `💻 Access locally: https://localhost:${ PORT }` );
+                console.log( `🔒 Using certificates: ${ keyFile }, ${ certFile }` );
+            } );
+        } catch ( err )
+        {
+            console.error( '❌ Failed to start HTTPS server:', err.message );
+            console.log( '⚠️  Falling back to HTTP...' );
+            startHttpServer();
+        }
+    }
+    else
     {
-        console.error( 'TLS certificate or key not found. Please ensure the files 192.168.1.9+1-key.pem and 192.168.1.9+1.pem exist in the project root.' );
-        process.exit( 1 );
+        // Production or no certs: Use plain HTTP (hosting platforms handle HTTPS)
+        if ( isProduction )
+        {
+            console.log( '🌐 Production mode: Starting HTTP server (platform handles HTTPS)' );
+        }
+        else
+        {
+            console.log( '⚠️  No certificates found. Starting HTTP server.' );
+            console.log( '💡 To use HTTPS locally (required for mobile camera/GPS):' );
+            console.log( '   1. Install mkcert: https://github.com/FiloSottile/mkcert' );
+            console.log( '   2. Run: mkcert -install' );
+            console.log( '   3. Run: mkcert localhost 127.0.0.1 <your-local-ip>' );
+            console.log( '   4. Place the generated .pem files in the project root' );
+        }
+        startHttpServer();
+    }
+
+    function startHttpServer ()
+    {
+        app.listen( PORT, '0.0.0.0', () =>
+        {
+            const networkInterfaces = os.networkInterfaces();
+            const localIP = Object.values( networkInterfaces )
+                .flat()
+                .find( iface => iface.family === 'IPv4' && !iface.internal )?.address || 'localhost';
+
+            console.log( `✅ HTTP server running on port ${ PORT }` );
+            console.log( `📱 Access from mobile: http://${ localIP }:${ PORT }` );
+            console.log( `💻 Access locally: http://localhost:${ PORT }` );
+        } );
     }
 }

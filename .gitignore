@@ -143,4 +143,5 @@ vite.config.ts.timestamp-*
 # attendance app
 selfies/
 logos/
-attendance.db
+*.db
+*.pem
