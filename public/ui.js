@@ -160,6 +160,63 @@
   } );
 } )();
 
+// Image modal for zoomed selfie viewing
+( function ()
+{
+  function showImageModal ( imageSrc, altText )
+  {
+    if ( !imageSrc ) return;
+
+    // Create modal if not exists
+    let modal = document.getElementById( 'image-modal' );
+    if ( !modal )
+    {
+      modal = document.createElement( 'div' );
+      modal.id = 'image-modal';
+      modal.style.cssText = 'position:fixed;left:0;top:0;width:100%;height:100%;background:rgba(0,0,0,0.9);z-index:10000;display:none;align-items:center;justify-content:center;padding:20px;box-sizing:border-box;';
+      modal.innerHTML = `
+        <div style="position:relative;max-width:90%;max-height:90%;">
+          <button id="close-image-modal" style="position:absolute;top:-40px;right:0;background:transparent;border:none;color:white;font-size:32px;cursor:pointer;padding:5px 10px;">&times;</button>
+          <img id="modal-image" style="max-width:100%;max-height:90vh;object-fit:contain;border-radius:8px;">
+        </div>
+      `;
+      document.body.appendChild( modal );
+
+      // Close on button click
+      document.getElementById( 'close-image-modal' ).addEventListener( 'click', () =>
+      {
+        modal.style.display = 'none';
+      } );
+
+      // Close on overlay click
+      modal.addEventListener( 'click', ( e ) =>
+      {
+        if ( e.target === modal )
+        {
+          modal.style.display = 'none';
+        }
+      } );
+
+      // Close on Escape key
+      document.addEventListener( 'keydown', ( e ) =>
+      {
+        if ( e.key === 'Escape' && modal.style.display === 'flex' )
+        {
+          modal.style.display = 'none';
+        }
+      } );
+    }
+
+    // Set image and show modal
+    const img = document.getElementById( 'modal-image' );
+    img.src = imageSrc;
+    img.alt = altText || 'Selfie';
+    modal.style.display = 'flex';
+  }
+
+  window.showImageModal = showImageModal;
+} )();
+
 // Device detection helper: set a cookie `device_type=mobile|desktop` for server-side enforcement
 ( function ()
 {

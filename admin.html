@@ -457,10 +457,10 @@
                     <td>${ row.date }</td>
                     <td>${ row.in_time || '' }</td>
                     <td>${ row.in_latitude ? `<a href="https://www.google.com/maps/search/?api=1&query=${ row.in_latitude },${ row.in_longitude }" target="_blank" rel="noopener noreferrer">${ row.in_latitude.toFixed( 4 ) }, ${ row.in_longitude.toFixed( 4 ) }</a>` : '' }</td>
-                    <td>${ row.in_selfie_path ? `<img src="${ row.in_selfie_path }" width="100">` : '' }</td>
+                    <td>${ row.in_selfie_path ? `<img src="${ row.in_selfie_path }" width="100" class="selfie-thumbnail" style="cursor:pointer;border-radius:4px;" data-selfie-src="${ row.in_selfie_path }" data-selfie-type="Check-in selfie" title="Click to view full size">` : '' }</td>
                     <td>${ row.out_time || '' }</td>
                     <td>${ row.out_latitude ? `<a href="https://www.google.com/maps/search/?api=1&query=${ row.out_latitude },${ row.out_longitude }" target="_blank" rel="noopener noreferrer">${ row.out_latitude.toFixed( 4 ) }, ${ row.out_longitude.toFixed( 4 ) }</a>` : '' }</td>
-                    <td>${ row.out_selfie_path ? `<img src="${ row.out_selfie_path }" width="100">` : '' }</td>
+                    <td>${ row.out_selfie_path ? `<img src="${ row.out_selfie_path }" width="100" class="selfie-thumbnail" style="cursor:pointer;border-radius:4px;" data-selfie-src="${ row.out_selfie_path }" data-selfie-type="Check-out selfie" title="Click to view full size">` : '' }</td>
                     <td>${ row.total_time || '' }</td>
                 `;
                     tbody.appendChild( tr );
@@ -475,6 +475,17 @@
                 const userRes = await fetch( '/user/me' );
                 const user = await userRes.json();
                 initBottomNav( 'admin', user.role );
+            } );
+
+            // Event delegation for selfie thumbnails
+            document.addEventListener( 'click', ( e ) =>
+            {
+                if ( e.target && e.target.classList.contains( 'selfie-thumbnail' ) )
+                {
+                    const src = e.target.getAttribute( 'data-selfie-src' );
+                    const type = e.target.getAttribute( 'data-selfie-type' );
+                    if ( src ) showImageModal( src, type );
+                }
             } );
         </script>
     </body>

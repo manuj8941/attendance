@@ -1,3 +1,4 @@
+require( 'dotenv' ).config();
 const express = require( 'express' );
 const sqlite3 = require( 'sqlite3' ).verbose();
 const path = require( 'path' );
@@ -9,7 +10,7 @@ const sharp = require( 'sharp' );
 const SALT_ROUNDS = 10;
 
 const app = express();
-const port = 3000;
+const port = process.env.PORT || 3000;
 
 // --- DIRECTORY AND USER SETUP ---
 const selfiesDir = './selfies';
@@ -44,7 +45,7 @@ users.forEach( user =>
 
 // --- MIDDLEWARE ---
 app.use( session( {
-    secret: 'your_secret_key',
+    secret: process.env.SESSION_SECRET || 'fallback_dev_secret_change_in_production',
     resave: false,
     saveUninitialized: true
 } ) );
