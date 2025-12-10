@@ -476,22 +476,26 @@ a
     padding: 8px 12px;
 }
 
-/* Bottom Navigation Bar - Compact */
+/* Bottom Navigation Bar - Centered, No Bleed */
 .bottom-nav
 {
     position: fixed;
     bottom: 0;
-    left: 0;
-    right: 0;
+    left: 50%;
+    transform: translateX(-50%);
+    width: 100%;
+    max-width: var(--container-max-width);
     background: #ffffff;
     border-top: 1px solid var(--border);
+    border-left: 1px solid var(--border);
+    border-right: 1px solid var(--border);
     box-shadow: 0 -2px 10px rgba(0, 0, 0, 0.1);
-    padding: 6px 0;
-    padding-bottom: max(6px, env(safe-area-inset-bottom));
+    padding: 8px 0;
+    padding-bottom: max(8px, env(safe-area-inset-bottom));
     z-index: 1000;
     display: flex;
     justify-content: center;
-    height: 30px
+    border-radius: 12px 12px 0 0;
 }
 
 .bottom-nav-container
@@ -536,7 +540,7 @@ a
     background: #e0f2f1;
 }
 
-/* Proper approach: Reserve space for bottom nav without breaking centering */
+/* Clean body without problematic padding */
 html
 {
     height: 100%;
@@ -549,7 +553,6 @@ body
     min-height: 100%;
     margin: 0;
     padding: 1rem;
-    padding-bottom: calc(50px + env(safe-area-inset-bottom, 0px) + 1rem);
     box-sizing: border-box;
     overflow-x: hidden;
     display: flex;
@@ -561,4 +564,11 @@ body
     width: 100%;
     max-width: var(--container-max-width);
     background: transparent;
+}
+
+/* Spacer to push content above navbar - bulletproof method */
+.bottom-spacer
+{
+    height: calc(60px + env(safe-area-inset-bottom, 0px));
+    flex-shrink: 0;
 }
