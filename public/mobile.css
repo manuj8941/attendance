@@ -3,7 +3,10 @@
 {
     --bg: #ffffff;
     --muted: #6b7280;
-    --accent: #0ea5a4;
+    --brand-color: #0ea5a4;
+    /* Dynamically updated via JS from branding settings */
+    --accent: var(--brand-color);
+    /* Links to brand color for easy customization */
     --success: #16a34a;
     /* Matches .approve-btn green */
     --danger: #dc2626;
@@ -182,6 +185,71 @@ button:disabled
 .reject-btn
 {
     background-color: var(--danger);
+}
+
+/* Button Variants for Branding Settings */
+.btn-primary
+{
+    background: var(--accent);
+    color: white;
+    padding: 10px 16px;
+    font-weight: 600;
+    border-radius: 8px;
+    border: none;
+    cursor: pointer;
+    transition: all 0.2s;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 6px;
+}
+
+.btn-primary:hover
+{
+    opacity: 0.9;
+    transform: translateY(-1px);
+}
+
+.btn-secondary
+{
+    background: #6b7280;
+    color: white;
+    padding: 10px 16px;
+    font-weight: 600;
+    border-radius: 8px;
+    border: none;
+    cursor: pointer;
+    transition: all 0.2s;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 6px;
+}
+
+.btn-secondary:hover
+{
+    background: #4b5563;
+}
+
+.btn-danger
+{
+    background: var(--danger);
+    color: white;
+    padding: 10px 16px;
+    font-weight: 600;
+    border-radius: 8px;
+    border: none;
+    cursor: pointer;
+    transition: all 0.2s;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 6px;
+}
+
+.btn-danger:hover
+{
+    background: #b91c1c;
 }
 
 /* --- Tables --- */

@@ -5,6 +5,7 @@ const session = require( 'express-session' );
 const fs = require( 'fs' );
 const moment = require( 'moment' );
 const bcrypt = require( 'bcryptjs' );
+const sharp = require( 'sharp' );
 const SALT_ROUNDS = 10;
 
 const app = express();
@@ -15,6 +16,12 @@ const selfiesDir = './selfies';
 if ( !fs.existsSync( selfiesDir ) )
 {
     fs.mkdirSync( selfiesDir );
+}
+
+const logosDir = './logos';
+if ( !fs.existsSync( logosDir ) )
+{
+    fs.mkdirSync( logosDir );
 }
 
 const users = [
@@ -44,6 +51,7 @@ app.use( session( {
 app.use( express.urlencoded( { extended: true, limit: '50mb' } ) );
 app.use( express.json( { limit: '50mb' } ) );
 app.use( '/selfies', express.static( 'selfies' ) );
+app.use( '/logos', express.static( 'logos' ) );
 // Serve public assets (CSS, JS) including mobile stylesheet
 app.use( express.static( 'public' ) );
 
@@ -168,6 +176,11 @@ db.serialize( () =>
 
     // Weekly off scheduling (1 default -> All Sundays off). Stored in settings as 'weekly_off_mode'
     db.run( "INSERT OR IGNORE INTO settings (name, value) VALUES (?, ?)", [ 'weekly_off_mode', '1' ] );
+
+    // Branding settings for white-label customization
+    db.run( "INSERT OR IGNORE INTO settings (name, value) VALUES (?, ?)", [ 'company_logo', '' ] );
+    db.run( "INSERT OR IGNORE INTO settings (name, value) VALUES (?, ?)", [ 'brand_color', '#0ea5a4' ] );
+    db.run( "INSERT OR IGNORE INTO settings (name, value) VALUES (?, ?)", [ 'company_name', 'Attendance System' ] );
 
     // --- SERVER STARTUP LEAVE ACCRUAL ---
     db.all( 'SELECT name, join_date, leave_balance, leave_balance_last_updated FROM users WHERE role != ?', [ 'owner' ], async ( err, employees ) =>
@@ -1520,6 +1533,217 @@ app.post( '/admin/settings/app/holidays/remove', requireOwner, ( req, res ) =>
             console.log( `${ req.session.user.name } removed holiday '${ row.name }' — ${ dateText } (id=${ id })` );
             return res.json( { success: true } );
         } );
+    } );
+} );
+
+// --- BRANDING ENDPOINTS ---
+
+// Get branding settings (public endpoint - no auth required)
+app.get( '/branding', ( req, res ) =>
+{
+    db.get( "SELECT value FROM settings WHERE name = ?", [ 'company_logo' ], ( err1, logoRow ) =>
+    {
+        if ( err1 ) return res.status( 500 ).json( { success: false } );
+
+        db.get( "SELECT value FROM settings WHERE name = ?", [ 'brand_color' ], ( err2, colorRow ) =>
+        {
+            if ( err2 ) return res.status( 500 ).json( { success: false } );
+
+            db.get( "SELECT value FROM settings WHERE name = ?", [ 'company_name' ], ( err3, nameRow ) =>
+            {
+                if ( err3 ) return res.status( 500 ).json( { success: false } );
+
+                res.json( {
+                    logo: logoRow?.value || '',
+                    brandColor: colorRow?.value || '#0ea5a4',
+                    companyName: nameRow?.value || 'Attendance System'
+                } );
+            } );
+        } );
+    } );
+} );
+
+// Upload company logo (owner only)
+app.post( '/admin/settings/logo', requireOwner, async ( req, res ) =>
+{
+    const { logo } = req.body;
+
+    if ( !logo || !logo.startsWith( 'data:image' ) )
+    {
+        return res.status( 400 ).json( { success: false, message: 'Please provide a valid image.' } );
+    }
+
+    try
+    {
+        // Extract base64 data
+        const matches = logo.match( /^data:image\/(\w+);base64,(.+)$/ );
+        if ( !matches )
+        {
+            return res.status( 400 ).json( { success: false, message: 'Invalid image format.' } );
+        }
+
+        const base64Data = matches[ 2 ];
+        const buffer = Buffer.from( base64Data, 'base64' );
+
+        // Check original file size (limit to 5MB before compression)
+        const originalSizeKB = buffer.length / 1024;
+        if ( originalSizeKB > 5120 )
+        {
+            return res.status( 400 ).json( {
+                success: false,
+                message: `Image is too large (${ Math.round( originalSizeKB / 1024 ) }MB). Please upload an image smaller than 5MB.`
+            } );
+        }
+
+        // Compress and resize image using sharp
+        // Max width: 400px, Max quality: 80%, Convert to WebP for better compression
+        const compressedBuffer = await sharp( buffer )
+            .resize( { width: 400, fit: 'inside', withoutEnlargement: true } )
+            .webp( { quality: 80 } )
+            .toBuffer();
+
+        const compressedSizeKB = compressedBuffer.length / 1024;
+        console.log( `Logo compressed: ${ Math.round( originalSizeKB ) }KB → ${ Math.round( compressedSizeKB ) }KB (${ Math.round( ( 1 - compressedSizeKB / originalSizeKB ) * 100 ) }% reduction)` );
+
+        // Save compressed image
+        const filename = 'company-logo.webp';
+        const filepath = path.join( logosDir, filename );
+
+        fs.writeFileSync( filepath, compressedBuffer );
+
+        const logoPath = `/logos/${ filename }`;
+
+        // Update database
+        db.run( "UPDATE settings SET value = ? WHERE name = ?", [ logoPath, 'company_logo' ], ( err ) =>
+        {
+            if ( err )
+            {
+                return res.status( 500 ).json( { success: false, message: 'Failed to save logo to database.' } );
+            }
+
+            console.log( `${ req.session.user.name } uploaded company logo: ${ logoPath } (${ Math.round( compressedSizeKB ) }KB)` );
+            res.json( {
+                success: true,
+                message: `Logo uploaded successfully! (Compressed to ${ Math.round( compressedSizeKB ) }KB)`,
+                logoPath
+            } );
+        } );
+    }
+    catch ( error )
+    {
+        console.error( 'Logo upload error:', error );
+        res.status( 500 ).json( { success: false, message: 'Failed to process logo upload. Please try a different image.' } );
+    }
+} );// Remove company logo (owner only)
+app.post( '/admin/settings/logo/remove', requireOwner, ( req, res ) =>
+{
+    db.get( "SELECT value FROM settings WHERE name = ?", [ 'company_logo' ], ( err, row ) =>
+    {
+        if ( err || !row || !row.value )
+        {
+            return res.json( { success: true, message: 'No logo to remove.' } );
+        }
+
+        // Delete file if exists
+        const logoPath = row.value.replace( '/logos/', '' );
+        const filepath = path.join( logosDir, logoPath );
+
+        if ( fs.existsSync( filepath ) )
+        {
+            fs.unlinkSync( filepath );
+        }
+
+        // Clear database
+        db.run( "UPDATE settings SET value = ? WHERE name = ?", [ '', 'company_logo' ], ( updateErr ) =>
+        {
+            if ( updateErr )
+            {
+                return res.status( 500 ).json( { success: false, message: 'Failed to remove logo.' } );
+            }
+
+            console.log( `${ req.session.user.name } removed company logo` );
+            res.json( { success: true, message: 'Logo removed successfully!' } );
+        } );
+    } );
+} );
+
+// Update brand color (owner only)
+app.post( '/admin/settings/brand-color', requireOwner, ( req, res ) =>
+{
+    const { color } = req.body;
+
+    // Validate hex color format
+    if ( !color || !/^#[0-9A-Fa-f]{6}$/.test( color ) )
+    {
+        return res.status( 400 ).json( { success: false, message: 'Please provide a valid hex color (e.g., #0ea5a4).' } );
+    }
+
+    db.run( "UPDATE settings SET value = ? WHERE name = ?", [ color, 'brand_color' ], ( err ) =>
+    {
+        if ( err )
+        {
+            return res.status( 500 ).json( { success: false, message: 'Failed to update brand color.' } );
+        }
+
+        console.log( `${ req.session.user.name } updated brand color to ${ color }` );
+        res.json( { success: true, message: 'Brand color updated successfully!' } );
+    } );
+} );
+
+// Update company name (owner only)
+app.post( '/admin/settings/company-name', requireOwner, ( req, res ) =>
+{
+    const { name } = req.body;
+    const companyName = ( name || '' ).trim();
+
+    if ( !companyName )
+    {
+        return res.status( 400 ).json( { success: false, message: 'Please provide a company name.' } );
+    }
+
+    db.run( "UPDATE settings SET value = ? WHERE name = ?", [ companyName, 'company_name' ], ( err ) =>
+    {
+        if ( err )
+        {
+            return res.status( 500 ).json( { success: false, message: 'Failed to update company name.' } );
+        }
+
+        console.log( `${ req.session.user.name } updated company name to "${ companyName }"` );
+        res.json( { success: true, message: 'Company name updated successfully!' } );
+    } );
+} );
+
+// Reset brand color to default (owner only)
+app.post( '/admin/settings/brand-color/reset', requireOwner, ( req, res ) =>
+{
+    const defaultColor = '#0ea5a4';
+
+    db.run( "UPDATE settings SET value = ? WHERE name = ?", [ defaultColor, 'brand_color' ], ( err ) =>
+    {
+        if ( err )
+        {
+            return res.status( 500 ).json( { success: false, message: 'Failed to reset brand color.' } );
+        }
+
+        console.log( `${ req.session.user.name } reset brand color to default` );
+        res.json( { success: true, message: 'Brand color reset to default!', color: defaultColor } );
+    } );
+} );
+
+// Reset company name to default (owner only)
+app.post( '/admin/settings/company-name/reset', requireOwner, ( req, res ) =>
+{
+    const defaultName = 'Attendance System';
+
+    db.run( "UPDATE settings SET value = ? WHERE name = ?", [ defaultName, 'company_name' ], ( err ) =>
+    {
+        if ( err )
+        {
+            return res.status( 500 ).json( { success: false, message: 'Failed to reset company name.' } );
+        }
+
+        console.log( `${ req.session.user.name } reset company name to default` );
+        res.json( { success: true, message: 'Company name reset to default!', name: defaultName } );
     } );
 } );
 

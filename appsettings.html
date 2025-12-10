@@ -86,6 +86,48 @@
                 </div>
             </div>
 
+            <!-- Company Branding Section -->
+            <div class="section">
+                <h2><i class="fas fa-palette"></i> Company Branding</h2>
+
+                <label>Company Name</label>
+                <input type="text" id="company-name" placeholder="Your Company Name" style="margin-bottom:8px">
+                <div style="display:flex;gap:8px;margin-bottom:20px">
+                    <button onclick="updateCompanyName()" class="btn-primary">
+                        <i class="fas fa-save"></i> Save
+                    </button>
+                    <button onclick="resetCompanyName()" class="btn-secondary" title="Reset to default">
+                        <i class="fas fa-undo"></i> Reset
+                    </button>
+                </div>
+
+                <label>Brand Color</label>
+                <div style="display:flex;gap:8px;align-items:center;margin-bottom:20px">
+                    <input type="color" id="brand-color" value="#0ea5a4"
+                        style="width:50px;height:44px;border:1px solid var(--border);border-radius:8px;cursor:pointer;padding:4px">
+                    <button onclick="updateBrandColor()" class="btn-primary" style="flex:1">
+                        <i class="fas fa-palette"></i> Apply
+                    </button>
+                    <button onclick="resetBrandColor()" class="btn-secondary" title="Reset to default">
+                        <i class="fas fa-undo"></i> Reset
+                    </button>
+                </div>
+
+                <label>Company Logo <span class="small" style="color:var(--muted)">(Max 5MB,
+                        auto-compressed)</span></label>
+                <input type="file" id="logo-upload" accept="image/*" style="margin-bottom:8px">
+                <div style="display:flex;gap:8px;margin-bottom:12px">
+                    <button onclick="uploadLogo()" class="btn-primary" style="flex:1">
+                        <i class="fas fa-upload"></i> Upload
+                    </button>
+                    <button onclick="removeLogo()" class="btn-danger" title="Remove logo">
+                        <i class="fas fa-trash"></i> Remove
+                    </button>
+                </div>
+                <img id="logo-preview"
+                    style="max-width:200px;margin-top:8px;display:none;border:1px solid var(--border);border-radius:8px;padding:4px">
+            </div>
+
             <!-- Spacer to ensure content clears bottom navbar -->
             <div class="bottom-spacer"></div>
 
@@ -94,6 +136,13 @@
                 {
                     const res = await fetch( '/admin/settings/app' );
                     if ( !res.ok ) { showAppModal( 'Could not load app settings.', 'error' ); return null; }
+                    return res.json();
+                }
+
+                async function fetchBranding ()
+                {
+                    const res = await fetch( '/branding' );
+                    if ( !res.ok ) return null;
                     return res.json();
                 }
 
@@ -108,6 +157,205 @@
                     const d = parseInt( parts[ 2 ], 10 );
                     const months = [ 'Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec' ];
                     return `${ d }-${ months[ m - 1 ] }-${ y.slice( 2 ) }`;
+                }
+
+                // --- BRANDING FUNCTIONS ---
+
+                async function updateCompanyName ()
+                {
+                    const name = document.getElementById( 'company-name' ).value.trim();
+                    if ( !name )
+                    {
+                        showAppModal( 'Please enter a company name.', 'error' );
+                        return;
+                    }
+
+                    try
+                    {
+                        const res = await fetch( '/admin/settings/company-name', {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify( { name } )
+                        } );
+                        const data = await res.json();
+                        if ( data.success )
+                        {
+                            showAppModal( data.message, 'success' );
+                        }
+                        else
+                        {
+                            showAppModal( data.message, 'error' );
+                        }
+                    }
+                    catch ( err )
+                    {
+                        showAppModal( 'Failed to update company name.', 'error' );
+                    }
+                }
+
+                async function updateBrandColor ()
+                {
+                    const color = document.getElementById( 'brand-color' ).value;
+
+                    try
+                    {
+                        const res = await fetch( '/admin/settings/brand-color', {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify( { color } )
+                        } );
+                        const data = await res.json();
+                        if ( data.success )
+                        {
+                            showAppModal( data.message, 'success', () =>
+                            {
+                                // Apply color immediately
+                                document.documentElement.style.setProperty( '--brand-color', color );
+                            } );
+                        }
+                        else
+                        {
+                            showAppModal( data.message, 'error' );
+                        }
+                    }
+                    catch ( err )
+                    {
+                        showAppModal( 'Failed to update brand color.', 'error' );
+                    }
+                }
+
+                async function uploadLogo ()
+                {
+                    const fileInput = document.getElementById( 'logo-upload' );
+                    const file = fileInput.files[ 0 ];
+
+                    if ( !file )
+                    {
+                        showAppModal( 'Please select an image first.', 'error' );
+                        return;
+                    }
+
+                    // Convert to base64
+                    const reader = new FileReader();
+                    reader.onload = async ( e ) =>
+                    {
+                        const base64 = e.target.result;
+
+                        try
+                        {
+                            const res = await fetch( '/admin/settings/logo', {
+                                method: 'POST',
+                                headers: { 'Content-Type': 'application/json' },
+                                body: JSON.stringify( { logo: base64 } )
+                            } );
+                            const data = await res.json();
+                            if ( data.success )
+                            {
+                                showAppModal( data.message, 'success' );
+                                document.getElementById( 'logo-preview' ).src = data.logoPath;
+                                document.getElementById( 'logo-preview' ).style.display = 'block';
+                                fileInput.value = '';
+                            }
+                            else
+                            {
+                                showAppModal( data.message, 'error' );
+                            }
+                        }
+                        catch ( err )
+                        {
+                            showAppModal( 'Failed to upload logo.', 'error' );
+                        }
+                    };
+                    reader.readAsDataURL( file );
+                }
+
+                async function removeLogo ()
+                {
+                    const confirmed = await showAppConfirm( 'Are you sure you want to remove the company logo?' );
+                    if ( !confirmed ) return;
+
+                    try
+                    {
+                        const res = await fetch( '/admin/settings/logo/remove', {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' }
+                        } );
+                        const data = await res.json();
+                        if ( data.success )
+                        {
+                            showAppModal( data.message, 'success' );
+                            document.getElementById( 'logo-preview' ).style.display = 'none';
+                            document.getElementById( 'logo-upload' ).value = '';
+                        }
+                        else
+                        {
+                            showAppModal( data.message, 'error' );
+                        }
+                    }
+                    catch ( err )
+                    {
+                        showAppModal( 'Failed to remove logo.', 'error' );
+                    }
+                }
+
+                async function resetBrandColor ()
+                {
+                    const confirmed = await showAppConfirm( 'Reset brand color to default (#0ea5a4)?' );
+                    if ( !confirmed ) return;
+
+                    try
+                    {
+                        const res = await fetch( '/admin/settings/brand-color/reset', {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' }
+                        } );
+                        const data = await res.json();
+                        if ( data.success )
+                        {
+                            showAppModal( data.message, 'success', () =>
+                            {
+                                // Update UI and apply color
+                                document.getElementById( 'brand-color' ).value = data.color;
+                                document.documentElement.style.setProperty( '--brand-color', data.color );
+                            } );
+                        }
+                        else
+                        {
+                            showAppModal( data.message, 'error' );
+                        }
+                    }
+                    catch ( err )
+                    {
+                        showAppModal( 'Failed to reset brand color.', 'error' );
+                    }
+                }
+
+                async function resetCompanyName ()
+                {
+                    const confirmed = await showAppConfirm( 'Reset company name to default (Attendance System)?' );
+                    if ( !confirmed ) return;
+
+                    try
+                    {
+                        const res = await fetch( '/admin/settings/company-name/reset', {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' }
+                        } );
+                        const data = await res.json();
+                        if ( data.success )
+                        {
+                            showAppModal( data.message, 'success' );
+                            document.getElementById( 'company-name' ).value = data.name;
+                        }
+                        else
+                        {
+                            showAppModal( data.message, 'error' );
+                        }
+                    }
+                    catch ( err )
+                    {
+                        showAppModal( 'Failed to reset company name.', 'error' );
+                    }
                 }
 
                 function formatMonthDayPretty ( mmdd )
@@ -127,6 +375,19 @@
                     if ( !s ) return;
                     document.getElementById( 'desktop-enabled' ).checked = !!s.desktop_enabled;
                     document.getElementById( 'weekly-off-mode' ).value = s.weekly_off_mode || '1';
+
+                    // Load branding settings
+                    const branding = await fetchBranding();
+                    if ( branding )
+                    {
+                        document.getElementById( 'company-name' ).value = branding.companyName || '';
+                        document.getElementById( 'brand-color' ).value = branding.brandColor || '#0ea5a4';
+                        if ( branding.logo )
+                        {
+                            document.getElementById( 'logo-preview' ).src = branding.logo;
+                            document.getElementById( 'logo-preview' ).style.display = 'block';
+                        }
+                    }
 
                     // Immediate save when desktop access checkbox is toggled
                     const desktopCheckbox = document.getElementById( 'desktop-enabled' );

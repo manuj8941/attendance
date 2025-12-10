@@ -244,3 +244,56 @@ function initBottomNav ( currentPage, userRole )
   // Append to body
   document.body.insertAdjacentHTML( 'beforeend', navHtml );
 }
+
+// --- BRANDING APPLICATION ---
+// Apply company branding (logo, color, name) to all pages
+( async function applyBranding ()
+{
+  try
+  {
+    const res = await fetch( '/branding' );
+    if ( !res.ok ) return;
+
+    const branding = await res.json();
+
+    // Apply brand color to CSS variables
+    if ( branding.brandColor )
+    {
+      document.documentElement.style.setProperty( '--brand-color', branding.brandColor );
+      document.documentElement.style.setProperty( '--accent', branding.brandColor );
+    }
+
+    // Update page title with company name
+    if ( branding.companyName && document.title )
+    {
+      const currentTitle = document.title;
+      if ( !currentTitle.includes( branding.companyName ) )
+      {
+        document.title = branding.companyName + ' - ' + currentTitle;
+      }
+    }
+
+    // Add logo to header if it exists (on login and dashboard pages)
+    if ( branding.logo )
+    {
+      // Check if we're on login page or dashboard
+      const container = document.querySelector( '.container' );
+      if ( container )
+      {
+        // Create logo element
+        const logoDiv = document.createElement( 'div' );
+        logoDiv.style.textAlign = 'center';
+        logoDiv.style.marginBottom = '16px';
+        logoDiv.innerHTML = `<img src="${ branding.logo }" alt="${ branding.companyName }" style="max-height:60px;max-width:200px;">`;
+
+        // Insert at the top of container
+        container.insertBefore( logoDiv, container.firstChild );
+      }
+    }
+  }
+  catch ( e )
+  {
+    // Silently fail - branding is optional
+    console.log( 'Branding not available' );
+  }
+} )();
