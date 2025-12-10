@@ -50,28 +50,25 @@
 
             <!-- Leave Management Section -->
             <div class="section">
-                <h2><i class="fas fa-umbrella-beach"></i> Time Off Requests</h2>
-                <div>
-                    <h3>Your Available Days Off</h3>
-                    <p>You have <strong id="leave-balance">Loading...</strong> days</p>
-                </div>
-                <hr>
+                <h2 style="margin-bottom:8px"><i class="fas fa-umbrella-beach"></i> Time Off Requests</h2>
+                <p style="margin:0 0 8px 0"><strong>Your Available Days Off:</strong> <span
+                        id="leave-balance">Loading...</span> days</p>
+                <hr style="margin:8px 0">
                 <form id="leave-application-form" action="/leaves/apply" method="post">
-                    <h3>Request Time Off</h3>
+                    <h3 style="margin:0 0 8px 0">Request Time Off</h3>
                     <label for="start_date"><i class="fas fa-calendar-day"></i> Start Date:</label>
                     <input type="date" id="start_date" name="start_date" required>
-                    <br><br>
                     <label for="end_date"><i class="fas fa-calendar-day"></i> End Date:</label>
                     <input type="date" id="end_date" name="end_date" required>
-                    <br><br>
                     <label for="reason"><i class="fas fa-comment"></i> Reason:</label>
-                    <textarea id="reason" name="reason" rows="3" cols="40" maxlength="250" required></textarea>
-                    <div style="font-size:12px;color:#666">Maximum 250 characters.</div>
-                    <br><br>
-                    <button type="submit"><i class="fas fa-paper-plane"></i> Send Request</button>
+                    <textarea id="reason" name="reason" rows="3" cols="40" maxlength="250" required
+                        style="resize:none"></textarea>
+                    <div style="font-size:12px;color:#666;margin-top:2px">Maximum 250 characters.</div>
+                    <button type="submit" style="margin-top:8px"><i class="fas fa-paper-plane"></i> Send
+                        Request</button>
                 </form>
-                <hr>
-                <h3>My Time Off History</h3>
+                <hr style="margin:10px 0">
+                <h3 style="margin-bottom:8px">My Time Off History</h3>
                 <div class="table-wrap">
                     <table>
                         <thead>
