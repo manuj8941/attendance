@@ -45,6 +45,7 @@
                 <h2>Account Info</h2>
                 <p><strong>Username:</strong> <span id="info-username"></span></p>
                 <p><strong>Role:</strong> <span id="info-role"></span></p>
+                <p><strong>Joined:</strong> <span id="info-join-date"></span></p>
             </div>
 
             <!-- Spacer to ensure content clears bottom navbar -->
@@ -63,10 +64,25 @@
             {
                 const user = await fetchUser();
                 if ( !user ) { if ( window.showAppModal ) showAppModal( 'Could not load profile. Please login again.', 'error' ); return; }
-                document.getElementById( 'profile-name' ).textContent = user.name;
+                document.getElementById( 'profile-name' ).textContent = user.displayName || user.name;
                 document.getElementById( 'profile-role' ).textContent = ( user.role || '' ).replace( '_', ' ' );
                 document.getElementById( 'info-username' ).textContent = user.name;
                 document.getElementById( 'info-role' ).textContent = ( user.role || '' ).replace( '_', ' ' );
+
+                // Format join date as DD-MMM-YYYY
+                if ( user.join_date )
+                {
+                    const date = new Date( user.join_date );
+                    const day = date.getDate();
+                    const months = [ 'Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec' ];
+                    const month = months[ date.getMonth() ];
+                    const year = date.getFullYear();
+                    document.getElementById( 'info-join-date' ).textContent = `${ day }-${ month }-${ year }`;
+                }
+                else
+                {
+                    document.getElementById( 'info-join-date' ).textContent = 'N/A';
+                }
             } );
 
             // Change password handler using shared modal

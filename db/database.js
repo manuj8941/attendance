@@ -1,17 +1,8 @@
 const sqlite3 = require( 'sqlite3' ).verbose();
 const bcrypt = require( 'bcryptjs' );
 const moment = require( 'moment' );
+const { users } = require( './seed' );
 const SALT_ROUNDS = 10;
-
-// Seed users data
-const users = [
-    { name: 'smita', password: '111', role: 'owner' },
-    { name: 'dinesh', password: '111', role: 'manager' },
-    { name: 'manuj', password: '111', role: 'employee' },
-    { name: 'atul', password: '111', role: 'employee' },
-    { name: 'kamini', password: '111', role: 'employee' },
-    { name: 'nazmul', password: '111', role: 'employee' }
-];
 
 // Initialize database connection
 const db = new sqlite3.Database( './attendance.db', ( err ) =>
@@ -39,16 +30,19 @@ function initializeDatabase ( app, accrueLeavesCallback )
         } );
 
         const stmtUsers = db.prepare( 'INSERT OR IGNORE INTO users (name, password, role, join_date) VALUES (?, ?, ?, ?)' );
+        const todayDate = moment().format( 'YYYY-MM-DD' );
         users.forEach( user =>
         {
             try
             {
                 const pwdHash = bcrypt.hashSync( ( user.password || '' ).toString(), SALT_ROUNDS );
-                stmtUsers.run( user.name, pwdHash, user.role, '2025-01-01' );
+                const normalized = user.name.toLowerCase().replace( /[.\-_\s]/g, '' );
+                stmtUsers.run( normalized, pwdHash, user.role, todayDate );
             } catch ( e )
             {
                 console.error( 'Error hashing seed password for', user.name, e );
-                stmtUsers.run( user.name, user.password, user.role, '2025-01-01' );
+                const normalized = user.name.toLowerCase().replace( /[.\-_\s]/g, '' );
+                stmtUsers.run( normalized, user.password, user.role, todayDate );
             }
         } );
         stmtUsers.finalize();

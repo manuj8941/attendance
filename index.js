@@ -8,6 +8,8 @@ const sharp = require( 'sharp' );
 const { db, users, initializeDatabase } = require( './db/database' );
 const { getSetting, updateSetting, getSettings } = require( './db/settings' );
 const {
+    normalizeUsername,
+    capitalizeUsername,
     getUserByName,
     getUserRole,
     verifyPassword,
@@ -399,7 +401,7 @@ app.post( '/login', async ( req, res ) =>
                     // Update DB to set the current_session_id to this session.
                     const finalizeLogin = () =>
                     {
-                        req.session.user = { name: user.name, role: user.role };
+                        req.session.user = { name: user.name, role: user.role, displayName: capitalizeUsername( user.name ) };
                         req.session.createdAt = Date.now();
                         if ( req.session.loginError ) delete req.session.loginError;
                         return res.redirect( '/dashboard' );
@@ -532,9 +534,24 @@ app.get( '/logout', async ( req, res ) =>
     }
 } );
 
-app.get( '/user/me', requireLogin, ( req, res ) =>
+app.get( '/user/me', requireLogin, async ( req, res ) =>
 {
-    res.json( req.session.user );
+    try
+    {
+        const user = await getUserByName( req.session.user.name );
+        if ( !user ) return res.status( 404 ).json( { error: 'User not found' } );
+
+        // Return session data plus join_date from database
+        res.json( {
+            name: user.name,
+            role: user.role,
+            displayName: req.session.user.displayName,
+            join_date: user.join_date
+        } );
+    } catch ( err )
+    {
+        res.status( 500 ).json( { error: 'Failed to fetch user data' } );
+    }
 } );
 
 // Profile page (personal settings) - available to all authenticated users
@@ -1593,28 +1610,66 @@ app.post( '/admin/settings/company-name/reset', requireOwner, async ( req, res )
     }
 } );
 
+// Database backup download (owner-only)
+app.get( '/admin/backup/download', requireOwner, ( req, res ) =>
+{
+    try
+    {
+        const dbPath = path.join( __dirname, 'attendance.db' );
+
+        // Check if database file exists
+        if ( !fs.existsSync( dbPath ) )
+        {
+            return res.status( 404 ).json( { success: false, message: 'Database file not found.' } );
+        }
+
+        console.log( `${ req.session.user.name } downloaded database backup` );
+
+        // Send file for download
+        res.download( dbPath, 'attendance-backup.db', ( err ) =>
+        {
+            if ( err )
+            {
+                console.error( 'Error downloading backup:', err );
+                if ( !res.headersSent )
+                {
+                    res.status( 500 ).json( { success: false, message: 'Failed to download backup.' } );
+                }
+            }
+        } );
+    } catch ( err )
+    {
+        console.error( 'Backup download error:', err );
+        return res.status( 500 ).json( { success: false, message: 'Failed to download backup.' } );
+    }
+} );
+
 // Desktop access toggle now managed via /admin/settings/app (owner-only)
 
 // Add new user (admins only)
 app.post( '/admin/users/add', requireAdmin, async ( req, res ) =>
 {
-    const { name, password, role } = req.body;
-    const username = ( name || '' ).trim();
+    const { name, password, role, join_date } = req.body;
+    const rawUsername = ( name || '' ).trim();
     const pwd = ( password && password.trim() ) ? password.trim() : '111';
     const userRole = role || 'employee';
 
-    // Basic validation: allow only letters, numbers, underscore
-    if ( !/^[A-Za-z0-9_]+$/.test( username ) )
+    // Basic validation: allow only letters (spaces, dots, hyphens will be normalized)
+    if ( !/^[A-Za-z.\-_\s]+$/.test( rawUsername ) )
     {
-        return res.status( 400 ).json( { success: false, message: 'Please use only letters, numbers, and underscores (no spaces).' } );
+        return res.status( 400 ).json( { success: false, message: 'Please use only letters (spaces, dots, and hyphens are allowed).' } );
     }
 
     try
     {
+        const username = normalizeUsername( rawUsername );
+        const displayName = capitalizeUsername( rawUsername );
+
         const existingUser = await getUserByName( username );
         if ( existingUser ) return res.status( 400 ).json( { success: false, message: 'This username is taken. Please try a different one.' } );
 
-        const joinDate = moment().format( 'YYYY-MM-DD' );
+        // Use provided join_date or default to today
+        const joinDate = ( join_date && join_date.trim() ) ? join_date.trim() : moment().format( 'YYYY-MM-DD' );
         // Prevent managers from creating owners or other managers
         if ( req.session.user && req.session.user.role === 'manager' && ( userRole === 'owner' || userRole === 'manager' ) )
         {

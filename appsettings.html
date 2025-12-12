@@ -50,6 +50,18 @@
             </div>
 
             <div class="section">
+                <h2><i class="fas fa-database"></i> Database Backup</h2>
+                <p class="small">Download a copy of your attendance database for safekeeping.</p>
+                <button id="download-backup">
+                    <i class="fas fa-download"></i> Download Backup
+                </button>
+                <div class="small" style="margin-top:8px;color:var(--muted)">
+                    <i class="fas fa-info-circle"></i> Backup includes all attendance records, leaves, users, and
+                    settings.
+                </div>
+            </div>
+
+            <div class="section">
                 <h2><i class="fas fa-umbrella-beach"></i> Special Days Off</h2>
                 <form id="add-adhoc-form">
                     <label for="adhoc-date"><i class="fas fa-calendar-day"></i> Date</label>
@@ -393,6 +405,43 @@
                     if ( !s ) return;
                     document.getElementById( 'desktop-enabled' ).checked = !!s.desktop_enabled;
                     document.getElementById( 'weekly-off-mode' ).value = s.weekly_off_mode || '1';
+
+                    // Database Backup handler
+                    document.getElementById( 'download-backup' ).addEventListener( 'click', async () =>
+                    {
+                        try
+                        {
+                            const now = new Date();
+                            const hour = now.getHours() % 12 || 12;
+                            const min = String( now.getMinutes() ).padStart( 2, '0' );
+                            const ampm = now.getHours() >= 12 ? 'PM' : 'AM';
+                            const day = now.getDate();
+                            const month = [ 'Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec' ][ now.getMonth() ];
+                            const year = String( now.getFullYear() ).slice( -2 );
+                            const filename = `attendance-backup-${ hour }-${ min }-${ ampm }-${ day }-${ month }-${ year }.db`;
+
+                            const res = await fetch( '/admin/backup/download' );
+                            if ( !res.ok ) throw new Error( 'Failed to download backup' );
+
+                            const blob = await res.blob();
+                            const url = window.URL.createObjectURL( blob );
+                            const a = document.createElement( 'a' );
+                            a.style.display = 'none';
+                            a.href = url;
+                            a.download = filename;
+                            document.body.appendChild( a );
+                            a.click();
+                            window.URL.revokeObjectURL( url );
+                            document.body.removeChild( a );
+
+                            showAppModal( 'Backup downloaded successfully! 🎉', 'success' );
+                        }
+                        catch ( err )
+                        {
+                            console.error( err );
+                            showAppModal( 'Failed to download backup. Please try again.', 'error' );
+                        }
+                    } );
 
                     // Load branding settings
                     const branding = await fetchBranding();

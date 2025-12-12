@@ -66,7 +66,7 @@
                 <h2><i class="fas fa-user-plus"></i> Add Team Member</h2>
                 <form id="add-user-form">
                     <label for="new-username"><i class="fas fa-user"></i> Username:</label>
-                    <input type="text" id="new-username" name="name" required pattern="[A-Za-z0-9_]+">
+                    <input type="text" id="new-username" name="name" required pattern="[A-Za-z.\-_\s]+">
                     <br>
                     <label for="new-password"><i class="fas fa-key"></i> Password (optional, default 111):</label>
                     <input type="password" id="new-password" name="password" placeholder="111">
@@ -77,6 +77,10 @@
                         <option value="manager">Manager</option>
                         <option value="owner">Owner</option>
                     </select>
+                    <br>
+                    <label for="new-join-date"><i class="fas fa-calendar"></i> Join Date (optional, defaults to
+                        today):</label>
+                    <input type="date" id="new-join-date" name="join_date">
                     <br>
                     <button type="submit"><i class="fas fa-user-plus"></i> Add Member</button>
                 </form>
@@ -130,7 +134,7 @@
                 // Fetch current admin's info
                 const userRes = await fetch( '/user/me' );
                 currentUser = await userRes.json();
-                document.getElementById( 'admin-name' ).textContent = currentUser.name;
+                document.getElementById( 'admin-name' ).textContent = currentUser.displayName || currentUser.name;
                 document.getElementById( 'admin-role' ).textContent = currentUser.role.replace( '_', ' ' );
 
                 // Load all necessary data
@@ -174,13 +178,14 @@
                     const roleEl = document.getElementById( 'new-role' );
                     const hiddenRoleEl = document.getElementById( 'new-role-hidden' );
                     const role = roleEl ? roleEl.value : ( hiddenRoleEl ? hiddenRoleEl.value : 'employee' );
+                    const join_date = document.getElementById( 'new-join-date' ).value;
 
                     try
                     {
                         const res = await fetch( '/admin/users/add', {
                             method: 'POST',
                             headers: { 'Content-Type': 'application/json' },
-                            body: JSON.stringify( { name, password, role } )
+                            body: JSON.stringify( { name, password, role, join_date } )
                         } );
                         const result = await res.json();
                         if ( res.ok && result.success )
