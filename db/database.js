@@ -1,7 +1,8 @@
 const sqlite3 = require( 'sqlite3' ).verbose();
 const bcrypt = require( 'bcryptjs' );
-const moment = require( 'moment' );
+const moment = require( 'moment-timezone' );
 const { users } = require( './seed' );
+const { getMoment } = require( './timezone' );
 const SALT_ROUNDS = 10;
 
 // Initialize database connection
@@ -30,19 +31,20 @@ function initializeDatabase ( app, accrueLeavesCallback )
         } );
 
         const stmtUsers = db.prepare( 'INSERT OR IGNORE INTO users (name, password, role, join_date) VALUES (?, ?, ?, ?)' );
-        const todayDate = moment().format( 'YYYY-MM-DD' );
         users.forEach( user =>
         {
             try
             {
                 const pwdHash = bcrypt.hashSync( ( user.password || '' ).toString(), SALT_ROUNDS );
                 const normalized = user.name.toLowerCase().replace( /[.\-_\s]/g, '' );
-                stmtUsers.run( normalized, pwdHash, user.role, todayDate );
+                const joinDate = user.join_date || getMoment().format( 'YYYY-MM-DD' );
+                stmtUsers.run( normalized, pwdHash, user.role, joinDate );
             } catch ( e )
             {
                 console.error( 'Error hashing seed password for', user.name, e );
                 const normalized = user.name.toLowerCase().replace( /[.\-_\s]/g, '' );
-                stmtUsers.run( normalized, user.password, user.role, todayDate );
+                const joinDate = user.join_date || getMoment().format( 'YYYY-MM-DD' );
+                stmtUsers.run( normalized, user.password, user.role, joinDate );
             }
         } );
         stmtUsers.finalize();
@@ -104,6 +106,7 @@ function initializeDatabase ( app, accrueLeavesCallback )
                 db.run( "INSERT OR IGNORE INTO settings (name, value) VALUES (?, ?)", [ 'desktop_enabled', '1' ] );
                 db.run( "INSERT OR IGNORE INTO settings (name, value) VALUES (?, ?)", [ 'desktop_disabled_at', '' ] );
                 db.run( "INSERT OR IGNORE INTO settings (name, value) VALUES (?, ?)", [ 'test_date_override', '' ] );
+                db.run( "INSERT OR IGNORE INTO settings (name, value) VALUES (?, ?)", [ 'timezone', 'Asia/Kolkata' ] );
             }
         } );
 
@@ -178,4 +181,4 @@ function initializeDatabase ( app, accrueLeavesCallback )
 }
 
 // Export database connection and initialization
-module.exports = {    db,    users,    initializeDatabase};
+module.exports = { db, users, initializeDatabase };

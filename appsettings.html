@@ -14,6 +14,7 @@
     </head>
 
     <body>
+
         <div class="container">
             <h1><i class="fas fa-cog"></i> System Settings</h1>
             <p>Manage your attendance system.</p>
@@ -26,7 +27,6 @@
                 <div style="margin-top:8px" class="small">When disabled, your team can only access from mobile devices.
                 </div>
             </div>
-
             <div class="section">
                 <h2><i class="fas fa-calendar-week"></i> Weekly Holidays</h2>
                 <select id="weekly-off-mode">
@@ -36,6 +36,46 @@
                 </select>
                 <div class="small" style="margin-top:8px">Select which days your team gets off each week.</div>
                 <div style="margin-top:8px"><button id="save-weekly"><i class="fas fa-save"></i> Save Schedule</button>
+                </div>
+            </div>
+
+            <div class="section">
+                <h2><i class="fas fa-globe"></i> Timezone</h2>
+                <select id="timezone-select">
+                    <optgroup label="India">
+                        <option value="Asia/Kolkata">India - IST (UTC+5:30)</option>
+                    </optgroup>
+                    <optgroup label="United Kingdom">
+                        <option value="Europe/London">United Kingdom - GMT/BST (UTC+0/+1)</option>
+                    </optgroup>
+                    <optgroup label="United States">
+                        <option value="America/New_York">Eastern Time (ET) - New York, Miami, Atlanta</option>
+                        <option value="America/Chicago">Central Time (CT) - Chicago, Dallas, Houston</option>
+                        <option value="America/Denver">Mountain Time (MT) - Denver, Salt Lake City</option>
+                        <option value="America/Phoenix">Mountain Time (MST) - Arizona (no DST)</option>
+                        <option value="America/Los_Angeles">Pacific Time (PT) - LA, San Francisco, Seattle</option>
+                        <option value="America/Anchorage">Alaska Time (AKT) - Anchorage</option>
+                        <option value="Pacific/Honolulu">Hawaii-Aleutian Time (HST) - Honolulu</option>
+                        <option value="America/Detroit">Eastern Time - Detroit, Michigan</option>
+                        <option value="America/Indiana/Indianapolis">Eastern Time - Indianapolis</option>
+                        <option value="America/Kentucky/Louisville">Eastern Time - Louisville, Kentucky</option>
+                        <option value="America/Boise">Mountain Time - Boise, Idaho</option>
+                    </optgroup>
+                    <optgroup label="Canada">
+                        <option value="America/St_Johns">Newfoundland Time (NT) - St. John's</option>
+                        <option value="America/Halifax">Atlantic Time (AT) - Halifax, Nova Scotia</option>
+                        <option value="America/Toronto">Eastern Time (ET) - Toronto, Ottawa</option>
+                        <option value="America/Winnipeg">Central Time (CT) - Winnipeg, Manitoba</option>
+                        <option value="America/Regina">Central Time (CST) - Saskatchewan (no DST)</option>
+                        <option value="America/Edmonton">Mountain Time (MT) - Edmonton, Calgary</option>
+                        <option value="America/Vancouver">Pacific Time (PT) - Vancouver, Victoria</option>
+                        <option value="America/Whitehorse">Pacific Time - Yukon</option>
+                    </optgroup>
+                </select>
+                <div class="small" style="margin-top:8px">All users will see times in this timezone. Changes apply
+                    immediately for everyone.</div>
+                <div style="margin-top:8px"><button id="save-timezone"><i class="fas fa-save"></i> Save
+                        Timezone</button>
                 </div>
             </div>
 
@@ -405,6 +445,7 @@
                     if ( !s ) return;
                     document.getElementById( 'desktop-enabled' ).checked = !!s.desktop_enabled;
                     document.getElementById( 'weekly-off-mode' ).value = s.weekly_off_mode || '3';
+                    document.getElementById( 'timezone-select' ).value = s.timezone || 'Asia/Kolkata';
 
                     // Database Backup handler
                     document.getElementById( 'download-backup' ).addEventListener( 'click', async () =>
@@ -631,6 +672,23 @@
                             const body = await res.json();
                             if ( res.ok && body.success ) showAppModal( 'Settings saved.', 'success' ); else showAppModal( body.message || 'Could not save.', 'error' );
                         } catch ( e ) { console.error( e ); showAppModal( 'Could not save settings.', 'error' ); }
+                    } );
+
+                    // Save timezone
+                    document.getElementById( 'save-timezone' ).addEventListener( 'click', async () =>
+                    {
+                        const timezone = document.getElementById( 'timezone-select' ).value;
+                        try
+                        {
+                            const res = await fetch( '/admin/settings/timezone', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify( { timezone } ) } );
+                            const body = await res.json();
+                            if ( res.ok && body.success ) 
+                            {
+                                showAppModal( 'Timezone updated. All times will now use ' + timezone + '.', 'success' );
+                                setTimeout( () => location.reload(), 1500 );
+                            }
+                            else showAppModal( body.message || 'Could not save timezone.', 'error' );
+                        } catch ( e ) { console.error( e ); showAppModal( 'Could not save timezone.', 'error' ); }
                     } );
 
                     // Add adhoc

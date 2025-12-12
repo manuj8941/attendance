@@ -3,10 +3,11 @@ const express = require( 'express' );
 const path = require( 'path' );
 const session = require( 'express-session' );
 const fs = require( 'fs' );
-const moment = require( 'moment' );
+const moment = require( 'moment-timezone' );
 const sharp = require( 'sharp' );
 const { db, users, initializeDatabase } = require( './db/database' );
-const { getSetting, updateSetting, getSettings } = require( './db/settings' );
+const { getSetting, updateSetting, getSettings, initTimezone, updateTimezone } = require( './db/settings' );
+const { getMoment } = require( './db/timezone' );
 const {
     normalizeUsername,
     capitalizeUsername,
@@ -53,7 +54,14 @@ users.forEach( user =>
 app.use( session( {
     secret: process.env.SESSION_SECRET || 'fallback_dev_secret_change_in_production',
     resave: false,
-    saveUninitialized: true
+    saveUninitialized: false,
+    cookie: {
+        maxAge: 24 * 60 * 60 * 1000, // 24 hours
+        httpOnly: true,
+        secure: false, // Set to true in production with HTTPS
+        sameSite: 'lax'
+    },
+    name: 'attendance.sid' // Custom session cookie name
 } ) );
 app.use( express.urlencoded( { extended: true, limit: '50mb' } ) );
 app.use( express.json( { limit: '50mb' } ) );
@@ -76,7 +84,7 @@ function computeTotalTimeForRow ( row )
     try
     {
         const inMoment = moment( `${ row.date } ${ row.in_time }`, 'YYYY-MM-DD HH:mm:ss' );
-        const outMoment = row.out_time ? moment( `${ row.date } ${ row.out_time }`, 'YYYY-MM-DD HH:mm:ss' ) : moment();
+        const outMoment = row.out_time ? moment( `${ row.date } ${ row.out_time }`, 'YYYY-MM-DD HH:mm:ss' ) : getMoment();
         const diff = moment.duration( outMoment.diff( inMoment ) );
         if ( diff.asMilliseconds() <= 0 ) return null;
         const hours = Math.floor( diff.asHours() );
@@ -136,19 +144,22 @@ function getEffectiveDate ( req )
             if ( m.isValid() ) return m.format( 'YYYY-MM-DD' );
         }
     } catch ( e ) { /* ignore and fall back to real date */ }
-    return moment().format( 'YYYY-MM-DD' );
+    return getMoment().format( 'YYYY-MM-DD' );
 }
 
 // --- DATABASE INITIALIZATION ---
 // Initialize database (runs migrations, seeds users, loads settings)
 initializeDatabase( app, accrueLeavesForUserOnStartup );
 
+// Initialize timezone cache
+initTimezone();
+
 // --- LEAVE ACCRUAL LOGIC (ON STARTUP) ---
 async function accrueLeavesForUserOnStartup ( employee )
 {
     return new Promise( ( resolve, reject ) =>
     {
-        const now = moment();
+        const now = getMoment();
         const joinDate = moment( employee.join_date, 'YYYY-MM-DD' );
         let lastAccrualMonth = employee.leave_balance_last_updated ? moment( employee.leave_balance_last_updated, 'YYYY-MM' ) : joinDate.clone().startOf( 'month' );
         let currentBalance = parseFloat( employee.leave_balance ) || 0;
@@ -237,7 +248,7 @@ function requireAdmin ( req, res, next )
 function requireOwner ( req, res, next )
 {
     if ( req.session.user && req.session.user.role === 'owner' ) return next();
-    return res.status( 403 ).send( 'Only the Owner may access this page.' );
+    return res.redirect( '/?error=access_denied' );
 }
 
 // Helper: check whether a given ISO date (YYYY-MM-DD) is an off day (ad-hoc, holiday, or weekly off)
@@ -759,7 +770,7 @@ app.post( '/mark-in', requireLogin, ( req, res ) =>
 {
     const { latitude, longitude, selfie } = req.body;
     const user = req.session.user;
-    const now = moment();
+    const now = getMoment();
     const date = getEffectiveDate( req );
     const time = now.format( 'HH:mm:ss' );
 
@@ -837,7 +848,7 @@ app.post( '/mark-out', requireLogin, ( req, res ) =>
 {
     const { latitude, longitude, selfie } = req.body;
     const user = req.session.user;
-    const now = moment();
+    const now = getMoment();
     const date = getEffectiveDate( req );
     const time = now.format( 'HH:mm:ss' );
     function doMarkOut ()
@@ -1169,9 +1180,10 @@ app.get( '/admin/settings/app', requireOwner, async ( req, res ) =>
     try
     {
         // Get settings using module
-        const settings = await getSettings( [ 'desktop_enabled', 'weekly_off_mode' ] );
+        const settings = await getSettings( [ 'desktop_enabled', 'weekly_off_mode', 'timezone' ] );
         const desktop_enabled = settings.desktop_enabled === '1';
         const weekly_off_mode = settings.weekly_off_mode || '1';
+        const timezone = settings.timezone || 'Asia/Kolkata';
 
         // Get ad-hoc offs and holidays
         const adhocPromise = new Promise( ( resolve, reject ) => db.all( 'SELECT id, date, reason, created_by, created_at FROM ad_hoc_offs ORDER BY date ASC', [], ( err, rows ) => err ? reject( err ) : resolve( rows || [] ) ) );
@@ -1179,7 +1191,7 @@ app.get( '/admin/settings/app', requireOwner, async ( req, res ) =>
 
         const [ adhocs, hols ] = await Promise.all( [ adhocPromise, holidaysPromise ] );
 
-        return res.json( { desktop_enabled, weekly_off_mode, ad_hoc_offs: adhocs, holidays: hols } );
+        return res.json( { desktop_enabled, weekly_off_mode, timezone, ad_hoc_offs: adhocs, holidays: hols } );
     } catch ( error )
     {
         return res.status( 500 ).json( { error: error.message } );
@@ -1249,6 +1261,23 @@ app.post( '/admin/settings/app', requireOwner, async ( req, res ) =>
     }
 } );
 
+// Update timezone setting (owner only)
+app.post( '/admin/settings/timezone', requireOwner, async ( req, res ) =>
+{
+    try
+    {
+        const { timezone } = req.body || {};
+        if ( !timezone ) return res.status( 400 ).json( { success: false, message: 'Timezone is required.' } );
+
+        await updateTimezone( timezone );
+        console.log( `${ req.session.user.name } updated timezone to: ${ timezone }` );
+        return res.json( { success: true, message: 'Timezone updated successfully!' } );
+    } catch ( err )
+    {
+        return res.status( 500 ).json( { success: false, message: err.message || 'Invalid timezone' } );
+    }
+} );
+
 // Add ad-hoc off (owner only). date must be > today (at least one day ahead)
 app.post( '/admin/settings/app/ad-hoc/add', requireOwner, ( req, res ) =>
 {
@@ -1257,7 +1286,7 @@ app.post( '/admin/settings/app/ad-hoc/add', requireOwner, ( req, res ) =>
     const m = moment( date, 'YYYY-MM-DD', true );
     if ( !m.isValid() ) return res.status( 400 ).json( { success: false, message: 'Date must be in YYYY-MM-DD format.' } );
     // must be at least one day ahead
-    if ( !m.isAfter( moment(), 'day' ) ) return res.status( 400 ).json( { success: false, message: 'Ad-hoc off must be declared at least one day before.' } );
+    if ( !m.isAfter( getMoment(), 'day' ) ) return res.status( 400 ).json( { success: false, message: 'Ad-hoc off must be declared at least one day before.' } );
 
     // Check if date is already a weekly off
     getSetting( 'weekly_off_mode' ).then( ( value ) =>
@@ -1335,7 +1364,7 @@ app.post( '/admin/settings/app/holidays/add', requireOwner, ( req, res ) =>
         if ( !/^[0-1][0-9]-[0-3][0-9]$/.test( month_day ) ) return res.status( 400 ).json( { success: false, message: 'month_day must be MM-DD.' } );
         insertMonthDay = month_day;
         // For recurring, check current year's occurrence
-        checkDate = moment( `${ moment().year() }-${ month_day }`, 'YYYY-MM-DD' );
+        checkDate = moment( `${ getMoment().year() }-${ month_day }`, 'YYYY-MM-DD' );
     } else
     {
         return res.status( 400 ).json( { success: false, message: 'Provide either `date` (YYYY-MM-DD) or `month_day` (MM-DD).' } );
@@ -1669,7 +1698,7 @@ app.post( '/admin/users/add', requireAdmin, async ( req, res ) =>
         if ( existingUser ) return res.status( 400 ).json( { success: false, message: 'This username is taken. Please try a different one.' } );
 
         // Use provided join_date or default to today
-        const joinDate = ( join_date && join_date.trim() ) ? join_date.trim() : moment().format( 'YYYY-MM-DD' );
+        const joinDate = ( join_date && join_date.trim() ) ? join_date.trim() : getMoment().format( 'YYYY-MM-DD' );
         // Prevent managers from creating owners or other managers
         if ( req.session.user && req.session.user.role === 'manager' && ( userRole === 'owner' || userRole === 'manager' ) )
         {
@@ -1956,7 +1985,7 @@ app.use( '/dashboard', requireLogin, ( req, res, next ) =>
 // Catch-all 404 handler (serve friendly page)
 app.use( ( req, res ) =>
 {
-    res.status( 404 ).sendFile( path.join( __dirname, '500.html' ) );
+    res.status( 404 ).sendFile( path.join( __dirname, '404.html' ) );
 } );
 
 // Error handler middleware (500)
@@ -1965,7 +1994,7 @@ app.use( ( err, req, res, next ) =>
     console.error( 'Server error:', err );
     if ( req.accepts( 'html' ) )
     {
-        res.status( 500 ).sendFile( path.join( __dirname, '404.html' ) );
+        res.status( 500 ).sendFile( path.join( __dirname, '500.html' ) );
     } else
     {
         res.status( 500 ).json( { error: 'Internal Server Error' } );

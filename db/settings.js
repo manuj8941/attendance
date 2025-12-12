@@ -1,4 +1,36 @@
 const { db } = require( './database' );
+const moment = require( 'moment-timezone' );
+const { setCachedTimezone } = require( './timezone' );
+
+/**
+ * Initialize timezone cache from database
+ * Should be called during app startup
+ */
+function initTimezone ()
+{
+    getSetting( 'timezone' ).then( tz =>
+    {
+        setCachedTimezone( tz );
+    } ).catch( () =>
+    {
+        setCachedTimezone( '' );
+    } );
+}
+
+/**
+ * Update timezone setting and refresh cache
+ * @param {string} timezone - IANA timezone identifier
+ */
+async function updateTimezone ( timezone )
+{
+    if ( !moment.tz.zone( timezone ) )
+    {
+        throw new Error( 'Invalid timezone' );
+    }
+    await updateSetting( 'timezone', timezone );
+    setCachedTimezone( timezone );
+    console.log( 'Timezone updated to:', timezone );
+}
 
 /**
  * Get a setting value by name
@@ -56,4 +88,4 @@ async function getSettings ( names )
     return result;
 }
 
-module.exports = { getSetting,    updateSetting,    getSettings};
+module.exports = { getSetting, updateSetting, getSettings, initTimezone, updateTimezone };

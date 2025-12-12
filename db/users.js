@@ -241,19 +241,4 @@ function deductLeaveBalance ( username, amount )
     } );
 }
 
-module.exports = {
-    normalizeUsername,
-    capitalizeUsername,
-    getUserByName,
-    getUserRole,
-    verifyPassword,
-    hashPassword,
-    getCurrentSessionId,
-    updateSessionId,
-    getAllUsers,
-    createUser,
-    updatePassword,
-    getLeaveBalance,
-    updateLeaveBalance,
-    deductLeaveBalance
-};
+module.exports = {     normalizeUsername,    capitalizeUsername,    getUserByName,    getUserRole,    verifyPassword,    hashPassword,    getCurrentSessionId,    updateSessionId,    getAllUsers,    createUser,    updatePassword,    getLeaveBalance,    updateLeaveBalance,    deductLeaveBalance};
