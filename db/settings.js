@@ -56,8 +56,4 @@ async function getSettings ( names )
     return result;
 }
 
-module.exports = {
-    getSetting,
-    updateSetting,
-    getSettings
-};
+module.exports = { getSetting,    updateSetting,    getSettings};

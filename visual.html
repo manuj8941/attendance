@@ -71,6 +71,38 @@
                         </div>
                     </div>
                 </div>
+
+                <!-- Month Statistics -->
+                <div class="section" style="margin-top:16px;background:#f9fafb;border:1px solid #e5e7eb;padding:12px">
+                    <h3 style="margin:0 0 12px 0;font-size:1rem;color:#374151"><i class="fas fa-chart-bar"></i> Month
+                        Summary</h3>
+                    <div style="display:grid;gap:8px;font-size:0.875rem">
+                        <div
+                            style="display:flex;justify-content:space-between;padding:6px 0;border-bottom:1px solid #e5e7eb">
+                            <span style="color:#6b7280">Total Days:</span>
+                            <strong id="stat-total-days">-</strong>
+                        </div>
+                        <div
+                            style="display:flex;justify-content:space-between;padding:6px 0;border-bottom:1px solid #e5e7eb">
+                            <span style="color:#6b7280">Working Days:</span>
+                            <strong id="stat-working-days">-</strong>
+                        </div>
+                        <div
+                            style="display:flex;justify-content:space-between;padding:6px 0;border-bottom:1px solid #e5e7eb">
+                            <span style="color:#6b7280">Present:</span>
+                            <strong id="stat-present-days" style="color:#10b981">-</strong>
+                        </div>
+                        <div
+                            style="display:flex;justify-content:space-between;padding:6px 0;border-bottom:1px solid #e5e7eb">
+                            <span style="color:#6b7280">Approved Leaves:</span>
+                            <strong id="stat-leave-days" style="color:#f59e0b">-</strong>
+                        </div>
+                        <div id="stat-absent-row" style="display:none;justify-content:space-between;padding:6px 0">
+                            <span style="color:#6b7280">Absent:</span>
+                            <strong id="stat-absent-days" style="color:#ef4444">-</strong>
+                        </div>
+                    </div>
+                </div>
             </div>
 
             <!-- Spacer to ensure content clears bottom navbar -->
@@ -113,6 +145,75 @@
                     return `${ dayName }, ${ day }-${ month }-${ year }`;
                 }
 
+                // Calculate and display month statistics
+                function calculateMonthStats ( days, year, month )
+                {
+                    // 1. Total days in month
+                    const totalDays = new Date( year, month, 0 ).getDate();
+
+                    // 2. Count days by status
+                    let weeklyOffDays = 0;
+                    let adHocOffDays = 0;
+                    let holidayDays = 0;
+                    let approvedLeaveDays = 0;
+                    let presentDays = 0;
+
+                    days.forEach( dayInfo =>
+                    {
+                        switch ( dayInfo.status )
+                        {
+                            case 'weekly':
+                                weeklyOffDays++;
+                                break;
+                            case 'ad_hoc':
+                                adHocOffDays++;
+                                break;
+                            case 'holiday':
+                                holidayDays++;
+                                break;
+                            case 'leave':
+                                approvedLeaveDays++;
+                                break;
+                            case 'present':
+                                presentDays++;
+                                break;
+                        }
+                    } );
+
+                    // 3. Calculate working days
+                    // Working days = Total - weekly offs - ad-hoc offs - holidays - approved leaves
+                    const workingDays = totalDays - weeklyOffDays - adHocOffDays - holidayDays - approvedLeaveDays;
+
+                    // 4. Calculate absent days (only for past months)
+                    const today = new Date();
+                    const currentYear = today.getFullYear();
+                    const currentMonth = today.getMonth() + 1;
+                    const isPastMonth = ( year < currentYear ) || ( year === currentYear && month < currentMonth );
+
+                    let absentDays = 0;
+                    if ( isPastMonth )
+                    {
+                        absentDays = workingDays - presentDays;
+                    }
+
+                    // 5. Update DOM elements
+                    document.getElementById( 'stat-total-days' ).textContent = totalDays;
+                    document.getElementById( 'stat-working-days' ).textContent = workingDays;
+                    document.getElementById( 'stat-present-days' ).textContent = presentDays;
+                    document.getElementById( 'stat-leave-days' ).textContent = approvedLeaveDays;
+                    document.getElementById( 'stat-absent-days' ).textContent = absentDays;
+
+                    // 6. Show/hide absent row based on whether month is complete
+                    const absentRow = document.getElementById( 'stat-absent-row' );
+                    if ( isPastMonth )
+                    {
+                        absentRow.style.display = 'flex';
+                    } else
+                    {
+                        absentRow.style.display = 'none';
+                    }
+                }
+
                 async function loadCalendar ()
                 {
                     const year = cur.getFullYear();
@@ -132,6 +233,7 @@
 
                         const payload = await res.json();
                         renderCalendar( payload.days, payload.year, payload.month );
+                        calculateMonthStats( payload.days, payload.year, payload.month );
 
                         container.style.display = 'grid';
                     } catch ( e )

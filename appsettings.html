@@ -30,9 +30,9 @@
             <div class="section">
                 <h2><i class="fas fa-calendar-week"></i> Weekly Holidays</h2>
                 <select id="weekly-off-mode">
-                    <option value="1">All Sundays off (default)</option>
+                    <option value="1">All Sundays off</option>
                     <option value="2">All Sundays + All Saturdays off</option>
-                    <option value="3">All Sundays + 2nd & 4th Saturdays off</option>
+                    <option value="3">All Sundays + 2nd & 4th Saturdays off (default)</option>
                 </select>
                 <div class="small" style="margin-top:8px">Select which days your team gets off each week.</div>
                 <div style="margin-top:8px"><button id="save-weekly"><i class="fas fa-save"></i> Save Schedule</button>
@@ -404,7 +404,7 @@
                     const s = await fetchSettings();
                     if ( !s ) return;
                     document.getElementById( 'desktop-enabled' ).checked = !!s.desktop_enabled;
-                    document.getElementById( 'weekly-off-mode' ).value = s.weekly_off_mode || '1';
+                    document.getElementById( 'weekly-off-mode' ).value = s.weekly_off_mode || '3';
 
                     // Database Backup handler
                     document.getElementById( 'download-backup' ).addEventListener( 'click', async () =>

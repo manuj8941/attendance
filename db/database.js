@@ -124,8 +124,8 @@ function initializeDatabase ( app, accrueLeavesCallback )
             date TEXT
         )` );
 
-        // Weekly off mode
-        db.run( "INSERT OR IGNORE INTO settings (name, value) VALUES (?, ?)", [ 'weekly_off_mode', '1' ] );
+        // Weekly off mode (default: mode 3 = All Sundays + 2nd & 4th Saturdays)
+        db.run( "INSERT OR IGNORE INTO settings (name, value) VALUES (?, ?)", [ 'weekly_off_mode', '3' ] );
 
         // Branding settings
         db.run( "INSERT OR IGNORE INTO settings (name, value) VALUES (?, ?)", [ 'company_logo', '' ] );
@@ -178,8 +178,4 @@ function initializeDatabase ( app, accrueLeavesCallback )
 }
 
 // Export database connection and initialization
-module.exports = {
-    db,
-    users,
-    initializeDatabase
-};
+module.exports = {    db,    users,    initializeDatabase};
