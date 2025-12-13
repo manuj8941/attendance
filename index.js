@@ -4,7 +4,6 @@ const path = require( 'path' );
 const session = require( 'express-session' );
 const fs = require( 'fs' );
 const moment = require( 'moment-timezone' );
-const sharp = require( 'sharp' );
 const { db, users, initializeDatabase } = require( './db/database' );
 const { getSetting, updateSetting, getSettings, initTimezone, updateTimezone } = require( './db/settings' );
 const { getMoment, getTimezone } = require( './db/timezone' );
@@ -1684,41 +1683,31 @@ app.post( '/admin/settings/logo', requireOwner, async ( req, res ) =>
         const base64Data = matches[ 2 ];
         const buffer = Buffer.from( base64Data, 'base64' );
 
-        // Check original file size (limit to 5MB before compression)
-        const originalSizeKB = buffer.length / 1024;
-        if ( originalSizeKB > 5120 )
+        // Check file size (5MB limit - already compressed client-side)
+        const sizeKB = buffer.length / 1024;
+        if ( sizeKB > 5120 )
         {
             return res.status( 400 ).json( {
                 success: false,
-                message: `Image is too large (${ Math.round( originalSizeKB / 1024 ) }MB). Please upload an image smaller than 5MB.`
+                message: `Image is too large (${ Math.round( sizeKB / 1024 ) }MB). Please upload an image smaller than 5MB.`
             } );
         }
 
-        // Compress and resize image using sharp
-        // Max width: 400px, Max quality: 80%, Convert to WebP for better compression
-        const compressedBuffer = await sharp( buffer )
-            .resize( { width: 400, fit: 'inside', withoutEnlargement: true } )
-            .webp( { quality: 80 } )
-            .toBuffer();
-
-        const compressedSizeKB = compressedBuffer.length / 1024;
-        console.log( `Logo compressed: ${ Math.round( originalSizeKB ) }KB → ${ Math.round( compressedSizeKB ) }KB (${ Math.round( ( 1 - compressedSizeKB / originalSizeKB ) * 100 ) }% reduction)` );
-
-        // Save compressed image
-        const filename = 'company-logo.webp';
+        // Save image (already compressed client-side via canvas)
+        const filename = 'company-logo.png';
         const filepath = path.join( logosDir, filename );
 
-        fs.writeFileSync( filepath, compressedBuffer );
+        fs.writeFileSync( filepath, buffer );
 
         const logoPath = `/logos/${ filename }`;
 
         // Update database
         await updateSetting( 'company_logo', logoPath );
 
-        console.log( `${ req.session.user.name } uploaded company logo: ${ logoPath } (${ Math.round( compressedSizeKB ) }KB)` );
+        console.log( `${ req.session.user.name } uploaded company logo: ${ logoPath } (${ Math.round( sizeKB ) }KB)` );
         res.json( {
             success: true,
-            message: `Logo uploaded successfully! (Compressed to ${ Math.round( compressedSizeKB ) }KB)`,
+            message: `Logo uploaded successfully! (${ Math.round( sizeKB ) }KB)`,
             logoPath
         } );
     }
