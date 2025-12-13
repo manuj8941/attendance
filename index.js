@@ -7,7 +7,7 @@ const moment = require( 'moment-timezone' );
 const sharp = require( 'sharp' );
 const { db, users, initializeDatabase } = require( './db/database' );
 const { getSetting, updateSetting, getSettings, initTimezone, updateTimezone } = require( './db/settings' );
-const { getMoment } = require( './db/timezone' );
+const { getMoment, getTimezone } = require( './db/timezone' );
 const {
     normalizeUsername,
     capitalizeUsername,
@@ -552,15 +552,30 @@ app.get( '/user/me', requireLogin, async ( req, res ) =>
         const user = await getUserByName( req.session.user.name );
         if ( !user ) return res.status( 404 ).json( { error: 'User not found' } );
 
-        // Return session data plus join_date from database
+        // Get effective date (considering test date override)
+        const effectiveDate = getEffectiveDate( req );
+
+        // Get current time in configured timezone
+        // If there's a test date override, use that date with current time
+        const timezone = getTimezone();
+        const now = moment().tz( timezone );
+
+        // Create datetime using effective date but current time
+        const effectiveDateTime = moment.tz( `${ effectiveDate } ${ now.format( 'HH:mm:ss' ) }`, 'YYYY-MM-DD HH:mm:ss', timezone );
+
+        // Return session data plus join_date, effective date, and current time
         res.json( {
             name: user.name,
             role: user.role,
-            displayName: req.session.user.displayName,
-            join_date: user.join_date
+            displayName: req.session.user.displayName || capitalizeUsername( user.name ),
+            join_date: user.join_date,
+            effectiveDate: effectiveDate,
+            currentDateTime: effectiveDateTime.format(),
+            timezone: timezone
         } );
     } catch ( err )
     {
+        console.error( 'Error in /user/me:', err );
         res.status( 500 ).json( { error: 'Failed to fetch user data' } );
     }
 } );

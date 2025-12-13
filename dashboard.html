@@ -138,48 +138,58 @@
                 document.getElementById( 'user-name' ).textContent = currentUser.displayName || currentUser.name;
                 document.getElementById( 'user-role' ).textContent = ( currentUser.role || '' ).replace( '_', ' ' );
 
-                // Fetch branding/timezone
-                const brandingRes = await fetch( '/branding' );
-                const branding = await brandingRes.json();
-                const timezone = branding && branding.timezone ? branding.timezone : 'Asia/Kolkata';
+                // Get timezone from user data (server provides it)
+                const timezone = currentUser.timezone || 'Asia/Kolkata';
 
-                // Display current date and time with timezone
+                // Display current date and time using server's effective date and time
                 function updateDateTime ()
                 {
-                    const now = new Date();
-                    const options = {
-                        timeZone: timezone,
-                        weekday: 'long',
-                        day: 'numeric',
-                        month: 'short',
-                        year: 'numeric',
-                        hour: 'numeric',
-                        minute: '2-digit',
-                        hour12: true
-                    };
-                    const formatter = new Intl.DateTimeFormat( 'en-GB', options );
-                    const parts = formatter.formatToParts( now );
+                    // Re-fetch user data to get current server time
+                    fetch( '/user/me' )
+                        .then( res => res.json() )
+                        .then( data =>
+                        {
+                            // Parse server's current datetime
+                            const serverTime = new Date( data.currentDateTime );
 
-                    const weekday = parts.find( p => p.type === 'weekday' ).value;
-                    const day = parts.find( p => p.type === 'day' ).value;
-                    const month = parts.find( p => p.type === 'month' ).value;
-                    const year = parts.find( p => p.type === 'year' ).value;
-                    const hour = parts.find( p => p.type === 'hour' ).value;
-                    const minute = parts.find( p => p.type === 'minute' ).value;
-                    const dayPeriod = parts.find( p => p.type === 'dayPeriod' );
-                    const ampm = dayPeriod ? dayPeriod.value.toUpperCase() : '';
+                            const options = {
+                                timeZone: timezone,
+                                weekday: 'long',
+                                day: 'numeric',
+                                month: 'short',
+                                year: 'numeric',
+                                hour: 'numeric',
+                                minute: '2-digit',
+                                hour12: true
+                            };
+                            const formatter = new Intl.DateTimeFormat( 'en-GB', options );
+                            const parts = formatter.formatToParts( serverTime );
 
-                    // Get timezone abbreviation
-                    let tzAbbr = 'UTC';
-                    try
-                    {
-                        const tzString = now.toLocaleString( 'en-US', { timeZone: timezone, timeZoneName: 'short' } );
-                        const match = tzString.match( /\b([A-Z]{2,5})\b$/ );
-                        if ( match ) tzAbbr = match[ 1 ];
-                    } catch ( e ) { /* fallback to UTC */ }
+                            const weekday = parts.find( p => p.type === 'weekday' ).value;
+                            const day = parts.find( p => p.type === 'day' ).value;
+                            const month = parts.find( p => p.type === 'month' ).value;
+                            const year = parts.find( p => p.type === 'year' ).value;
+                            const hour = parts.find( p => p.type === 'hour' ).value;
+                            const minute = parts.find( p => p.type === 'minute' ).value;
+                            const dayPeriod = parts.find( p => p.type === 'dayPeriod' );
+                            const ampm = dayPeriod ? dayPeriod.value.toUpperCase() : '';
 
-                    const dateTimeString = `Today is ${ weekday }, ${ day }-${ month }-${ year } (${ tzAbbr }), ${ hour }:${ minute } ${ ampm }`;
-                    document.getElementById( 'current-datetime' ).textContent = dateTimeString;
+                            // Get timezone abbreviation
+                            let tzAbbr = 'UTC';
+                            try
+                            {
+                                const tzString = serverTime.toLocaleString( 'en-US', { timeZone: timezone, timeZoneName: 'short' } );
+                                const match = tzString.match( /\b([A-Z]{2,5})\b$/ );
+                                if ( match ) tzAbbr = match[ 1 ];
+                            } catch ( e ) { /* fallback to UTC */ }
+
+                            const dateTimeString = `Today is ${ weekday }, ${ day }-${ month }-${ year } (${ tzAbbr }), ${ hour }:${ minute } ${ ampm }`;
+                            document.getElementById( 'current-datetime' ).textContent = dateTimeString;
+                        } )
+                        .catch( err =>
+                        {
+                            console.error( 'Error fetching server time:', err );
+                        } );
                 }
 
                 // Initial update and set interval to update every minute
