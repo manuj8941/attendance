@@ -34,6 +34,7 @@
                                 <th>Employee</th>
                                 <th>Start Date</th>
                                 <th>End Date</th>
+                                <th>Type</th>
                                 <th>Reason</th>
                                 <th>Action</th>
                                 <th>Flags</th>
@@ -54,6 +55,7 @@
                                 <th>Employee</th>
                                 <th>Start Date</th>
                                 <th>End Date</th>
+                                <th>Type</th>
                                 <th>Reason</th>
                                 <th>Status</th>
                                 <th>Actioned By</th>
@@ -306,7 +308,7 @@
                 tbody.innerHTML = '';
                 if ( leaves.length === 0 )
                 {
-                    tbody.innerHTML = '<tr><td colspan="5">No pending leave requests.</td></tr>';
+                    tbody.innerHTML = '<tr><td colspan="7">No pending leave requests.</td></tr>';
                     return;
                 }
                 leaves.forEach( leave =>
@@ -320,6 +322,11 @@
                     const reasonHtml = fullReason && fullReason.length > 25
                         ? `${ escapeHtml( previewForDisplay ) } <a href="#" class="show-reason" data-full="${ escapeHtmlAttr( fullReason ) }">...</a>`
                         : escapeHtml( previewForDisplay );
+
+                    const leaveType = ( leave.leave_type || 'full' ) === 'half' ? 'Half' : 'Full';
+                    const leaveTypeBadge = leaveType === 'Half'
+                        ? '<span style="background:#f3e8ff;color:#6b21a8;padding:2px 6px;border-radius:3px;font-size:11px;font-weight:600;">HALF</span>'
+                        : '<span style="background:#dbeafe;color:#1e40af;padding:2px 6px;border-radius:3px;font-size:11px;font-weight:600;">FULL</span>';
 
                     const flags = [];
                     if ( leave.is_backdated ) flags.push( '<span title="Backdated request" style="font-size:12px;color:#666;margin-right:6px;">(backdated)</span>' );
@@ -342,6 +349,7 @@
                     <td>${ leave.username }</td>
                     <td>${ leave.start_date }</td>
                     <td>${ leave.end_date }</td>
+                    <td>${ leaveTypeBadge }</td>
                     <td>${ reasonHtml }</td>
                     <td>${ actionHtml }</td>
                     <td>${ flags.join( ' ' ) }</td>
@@ -358,7 +366,7 @@
                 tbody.innerHTML = '';
                 if ( leaves.length === 0 )
                 {
-                    tbody.innerHTML = '<tr><td colspan="6"><i class="fas fa-info-circle"></i> No time off requests yet.</td></tr>';
+                    tbody.innerHTML = '<tr><td colspan="7"><i class="fas fa-info-circle"></i> No time off requests yet.</td></tr>';
                     return;
                 }
                 leaves.forEach( leave =>
@@ -370,6 +378,11 @@
                         ? `${ escapeHtml( reasonPreview ) } <a href="#" class="show-reason" data-full="${ escapeHtmlAttr( fullReason ) }">...</a>`
                         : escapeHtml( reasonPreview );
 
+                    const leaveType = ( leave.leave_type || 'full' ) === 'half' ? 'Half' : 'Full';
+                    const leaveTypeBadge = leaveType === 'Half'
+                        ? '<span style="background:#f3e8ff;color:#6b21a8;padding:2px 6px;border-radius:3px;font-size:11px;font-weight:600;">HALF</span>'
+                        : '<span style="background:#dbeafe;color:#1e40af;padding:2px 6px;border-radius:3px;font-size:11px;font-weight:600;">FULL</span>';
+
                     const flags = [];
                     if ( leave.is_backdated ) flags.push( '<span title="Backdated request" style="font-size:12px;color:#666;margin-right:6px;">(backdated)</span>' );
                     if ( leave.taken_back && leave.status !== 'withdrawn' ) flags.push( '<span title="Taken back" style="font-size:12px;color:#999;margin-right:6px;">(withdrawn)</span>' );
@@ -377,6 +390,7 @@
                     <td>${ leave.username }</td>
                     <td>${ leave.start_date }</td>
                     <td>${ leave.end_date }</td>
+                    <td>${ leaveTypeBadge }</td>
                     <td>${ reasonHtml }</td>
                     <td class="status-${ leave.status }">${ leave.status } ${ flags.join( ' ' ) }</td>
                     <td>${ leave.approved_by || '' }</td>

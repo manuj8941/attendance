@@ -94,6 +94,7 @@ function initializeDatabase ( app, accrueLeavesCallback )
                 if ( names.indexOf( 'is_backdated' ) === -1 ) db.run( "ALTER TABLE leaves ADD COLUMN is_backdated INTEGER DEFAULT 0" );
                 if ( names.indexOf( 'taken_back' ) === -1 ) db.run( "ALTER TABLE leaves ADD COLUMN taken_back INTEGER DEFAULT 0" );
                 if ( names.indexOf( 'taken_back_at' ) === -1 ) db.run( "ALTER TABLE leaves ADD COLUMN taken_back_at TEXT DEFAULT ''" );
+                if ( names.indexOf( 'leave_type' ) === -1 ) db.run( "ALTER TABLE leaves ADD COLUMN leave_type TEXT DEFAULT 'full'" );
             } catch ( e ) { /* ignore migration errors */ }
         } );
 

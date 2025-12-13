@@ -58,6 +58,9 @@
                         <div class="legend-dot cal-status-leave"></div> Leave
                     </div>
                     <div class="legend-item">
+                        <div class="legend-dot cal-status-half_day_leave"></div> Half Day Leave
+                    </div>
+                    <div class="legend-item">
                         <div class="legend-dot cal-status-holiday"></div> Holiday
                     </div>
                     <div class="legend-item">
@@ -155,8 +158,10 @@
                     let weeklyOffDays = 0;
                     let adHocOffDays = 0;
                     let holidayDays = 0;
-                    let approvedLeaveDays = 0;
-                    let presentDays = 0;
+                    let approvedLeaveDays = 0; // Can be fractional (0.5 for half-days)
+                    let fullDayLeaveDays = 0; // Only full-day leaves
+                    let presentDays = 0; // Can be fractional (0.5 for half-day leave days)
+                    let halfDayLeaveDays = 0;
 
                     days.forEach( dayInfo =>
                     {
@@ -173,6 +178,16 @@
                                 break;
                             case 'leave':
                                 approvedLeaveDays++;
+                                fullDayLeaveDays++; // Count for working days calculation
+                                break;
+                            case 'half_day_leave':
+                                approvedLeaveDays += 0.5;
+                                presentDays += 0.5; // Count as 0.5 present (worked half day)
+                                halfDayLeaveDays++;
+                                break;
+                            case 'absent_half_leave':
+                                approvedLeaveDays += 0.5;
+                                // Don't count as present (they didn't show up for their working half)
                                 break;
                             case 'present':
                                 presentDays++;
@@ -180,11 +195,11 @@
                         }
                     } );
 
-                    // 3. Calculate working days
-                    // Working days = Total - weekly offs - ad-hoc offs - holidays - approved leaves
+                    // 3. Calculate working days (can be fractional)
+                    // Working days = Total - weekly offs - ad-hoc offs - holidays - all leave days (including fractional half-day leaves)
                     const workingDays = totalDays - weeklyOffDays - adHocOffDays - holidayDays - approvedLeaveDays;
 
-                    // 4. Calculate absent days (only for past months)
+                    // 4. Calculate absent days (only for past months) - can be fractional
                     const today = new Date();
                     const currentYear = today.getFullYear();
                     const currentMonth = today.getMonth() + 1;
@@ -196,12 +211,14 @@
                         absentDays = workingDays - presentDays;
                     }
 
-                    // 5. Update DOM elements
+                    // 5. Update DOM elements (format fractional values nicely)
+                    const formatFractional = ( val ) => val % 1 === 0 ? val : val.toFixed( 1 );
+
                     document.getElementById( 'stat-total-days' ).textContent = totalDays;
-                    document.getElementById( 'stat-working-days' ).textContent = workingDays;
-                    document.getElementById( 'stat-present-days' ).textContent = presentDays;
-                    document.getElementById( 'stat-leave-days' ).textContent = approvedLeaveDays;
-                    document.getElementById( 'stat-absent-days' ).textContent = absentDays;
+                    document.getElementById( 'stat-working-days' ).textContent = formatFractional( workingDays );
+                    document.getElementById( 'stat-present-days' ).textContent = formatFractional( presentDays );
+                    document.getElementById( 'stat-leave-days' ).textContent = formatFractional( approvedLeaveDays );
+                    document.getElementById( 'stat-absent-days' ).textContent = formatFractional( absentDays );
 
                     // 6. Show/hide absent row based on whether month is complete
                     const absentRow = document.getElementById( 'stat-absent-row' );

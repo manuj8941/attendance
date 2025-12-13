@@ -60,10 +60,22 @@
                     <input type="date" id="start_date" name="start_date" required>
                     <label for="end_date"><i class="fas fa-calendar-day"></i> End Date:</label>
                     <input type="date" id="end_date" name="end_date" required>
+                    <label><i class="fas fa-clock"></i> Leave Type:</label>
+                    <div style="margin-bottom:12px;">
+                        <label style="display:inline-block;margin-right:20px;font-weight:normal;">
+                            <input type="radio" name="leave_type" value="full" checked style="margin-right:5px;">
+                            Full Day
+                        </label>
+                        <label style="display:inline-block;font-weight:normal;">
+                            <input type="radio" name="leave_type" value="half" style="margin-right:5px;">
+                            Half Day
+                        </label>
+                    </div>
                     <label for="reason"><i class="fas fa-comment"></i> Reason:</label>
                     <textarea id="reason" name="reason" rows="3" cols="40" maxlength="250" required
                         style="resize:none"></textarea>
-                    <div style="font-size:12px;color:#666;margin-top:2px">Maximum 250 characters.</div>
+                    <div style="font-size:12px;color:#666;margin-top:2px">Maximum 250 characters. Note: Half-day leaves
+                        can only be applied for a single day.</div>
                     <button type="submit" style="margin-top:8px"><i class="fas fa-paper-plane"></i> Send
                         Request</button>
                 </form>
@@ -846,38 +858,51 @@
                         const data = Object.fromEntries( formData.entries() );
                         const start = data.start_date;
                         const end = data.end_date;
+                        const leaveType = data.leave_type || 'full';
 
                         // Client-side: Date order check
                         if ( !start || !end ) { showModal( 'Please select both start and end dates.', 'error' ); return; }
                         if ( new Date( start ) > new Date( end ) ) { showModal( 'Your start date should be before the end date.', 'error' ); return; }
 
+                        // Half-day validation
+                        if ( leaveType === 'half' && start !== end )
+                        {
+                            showModal( 'Half-day leaves can only be applied for a single day. Please select the same start and end date.', 'error' );
+                            return;
+                        }
+
                         try
                         {
-                            // Fetch attendance dates and check if any date in range has attendance
-                            const attRes = await fetch( '/attendance/dates' );
-                            const attDates = await attRes.json(); // array of YYYY-MM-DD strings
-
-                            // generate set of dates in range
-                            function datesInRange ( s, e )
+                            // Only check attendance overlap for FULL-DAY leaves
+                            // Half-day leaves can coexist with attendance
+                            if ( leaveType === 'full' )
                             {
-                                const arr = [];
-                                let cur = new Date( s );
-                                const endd = new Date( e );
-                                while ( cur <= endd )
+                                // Fetch attendance dates and check if any date in range has attendance
+                                const attRes = await fetch( '/attendance/dates' );
+                                const attDates = await attRes.json(); // array of YYYY-MM-DD strings
+
+                                // generate set of dates in range
+                                function datesInRange ( s, e )
                                 {
-                                    arr.push( cur.toISOString().slice( 0, 10 ) );
-                                    cur.setDate( cur.getDate() + 1 );
+                                    const arr = [];
+                                    let cur = new Date( s );
+                                    const endd = new Date( e );
+                                    while ( cur <= endd )
+                                    {
+                                        arr.push( cur.toISOString().slice( 0, 10 ) );
+                                        cur.setDate( cur.getDate() + 1 );
+                                    }
+                                    return arr;
                                 }
-                                return arr;
-                            }
 
-                            const requested = datesInRange( start, end );
-                            const presentOverlap = requested.filter( d => attDates.indexOf( d ) !== -1 );
-                            if ( presentOverlap.length > 0 )
-                            {
-                                const pretty = presentOverlap.map( d => formatIsoDateNice( d ) ).join( ', ' );
-                                showModal( `You were present on: ${ pretty }. You can't request time off for days you've already worked.`, 'error' );
-                                return;
+                                const requested = datesInRange( start, end );
+                                const presentOverlap = requested.filter( d => attDates.indexOf( d ) !== -1 );
+                                if ( presentOverlap.length > 0 )
+                                {
+                                    const pretty = presentOverlap.map( d => formatIsoDateNice( d ) ).join( ', ' );
+                                    showModal( `You were present on: ${ pretty }. You can't request time off for days you've already worked.`, 'error' );
+                                    return;
+                                }
                             }
 
                             // Fetch raw leaves to check overlap

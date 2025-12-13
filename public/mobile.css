@@ -34,7 +34,7 @@ body
     -moz-osx-font-smoothing: grayscale;
     display: flex;
     justify-content: center;
-    padding: 1rem;    
+    padding: 1rem;
 }
 
 /* --- Layout --- */
@@ -462,6 +462,27 @@ a
     /* Dark Purple Text */
     border: 2px solid #c084fc;
     /* Bright Purple Border */
+}
+
+.cal-status-half_day_leave
+{
+    background: linear-gradient(135deg, #dbeafe 50%, #f3e8ff 50%);
+    /* Half blue (present), half purple (leave) */
+    color: #1e40af;
+    /* Dark Blue Text */
+    border: 2px solid #a855f7;
+    /* Purple-Blue Border */
+    font-weight: 600;
+}
+
+.cal-status-absent_half_leave
+{
+    background: linear-gradient(135deg, #fee2e2 50%, #f3e8ff 50%);
+    /* Half red (absent), half purple (leave) */
+    color: #991b1b;
+    /* Dark Red Text */
+    border: 2px solid #c084fc;
+    /* Purple Border */
 }
 
 .cal-status-holiday

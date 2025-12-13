@@ -576,11 +576,11 @@ app.get( '/dashboard', requireLogin, ( req, res ) =>
 {
     // Unified dashboard route: serve admin UI to admins, employee UI to others
     const role = req.session.user && req.session.user.role;
-    // Owners get the full admin UI (they don't mark attendance); managers are employees and should use the
+    // Owners get redirected to /admin; managers are employees and should use the
     // regular dashboard so they can mark attendance but still access admin APIs via links.
     if ( role === 'owner' )
     {
-        return res.sendFile( path.join( __dirname, 'admin.html' ) );
+        return res.redirect( '/admin' );
     }
     return res.sendFile( path.join( __dirname, 'dashboard.html' ) );
 } );
@@ -638,7 +638,7 @@ app.get( '/visual/data', requireLogin, async ( req, res ) =>
             } );
         } );
 
-        const leavesPromise = new Promise( ( resolve ) => db.all( `SELECT leave_id, start_date, end_date, reason, status FROM leaves WHERE username = ? AND status = 'approved' AND NOT (end_date < ? OR start_date > ?)`, [ username, firstDate, lastDate ], ( err, rows ) => resolve( err ? [] : ( rows || [] ) ) ) );
+        const leavesPromise = new Promise( ( resolve ) => db.all( `SELECT leave_id, start_date, end_date, reason, status, leave_type FROM leaves WHERE username = ? AND status = 'approved' AND NOT (end_date < ? OR start_date > ?)`, [ username, firstDate, lastDate ], ( err, rows ) => resolve( err ? [] : ( rows || [] ) ) ) );
 
         const adhocPromise = new Promise( ( resolve ) => db.all( 'SELECT date, reason FROM ad_hoc_offs WHERE date BETWEEN ? AND ?', [ firstDate, lastDate ], ( err, rows ) => resolve( err ? [] : ( rows || [] ) ) ) );
 
@@ -712,8 +712,24 @@ app.get( '/visual/data', requireLogin, async ( req, res ) =>
 
             if ( !off.off )
             {
-                if ( leave ) { status = 'leave'; }
-                else if ( att && att.in_time ) { status = 'present'; }
+                // Check for half-day leave with attendance
+                if ( leave && leave.leave_type === 'half' && att && att.in_time )
+                {
+                    status = 'half_day_leave';
+                }
+                else if ( leave && leave.leave_type === 'full' )
+                {
+                    status = 'leave';
+                }
+                else if ( leave && leave.leave_type === 'half' && ( !att || !att.in_time ) )
+                {
+                    // Half-day leave but no attendance - absent for working half
+                    status = 'absent_half_leave';
+                }
+                else if ( att && att.in_time )
+                {
+                    status = 'present';
+                }
             }
 
             days.push( {
@@ -724,7 +740,7 @@ app.get( '/visual/data', requireLogin, async ( req, res ) =>
                 total_time: att ? computeTotalTimeForRow( att ) : null,
                 holiday_name: holiday_name || null,
                 adhoc_reason: adhoc_reason || null,
-                leave: leave ? { leave_id: leave.leave_id, status: leave.status, reason: leave.reason } : null
+                leave: leave ? { leave_id: leave.leave_id, status: leave.status, reason: leave.reason, leave_type: leave.leave_type || 'full' } : null
             } );
         }
 
@@ -744,8 +760,9 @@ app.get( '/attendance/pending-leave-check', requireLogin, ( req, res ) =>
     const user = req.session.user;
     const today = getEffectiveDate( req );
 
-    db.get( 'SELECT leave_id, start_date, end_date, reason FROM leaves WHERE username = ? AND status = ? AND start_date <= ? AND end_date >= ?',
-        [ user.name, 'pending', today, today ], ( err, pendingLeave ) =>
+    // Only return pending FULL-DAY leaves (half-day leaves can coexist with attendance)
+    db.get( 'SELECT leave_id, start_date, end_date, reason, leave_type FROM leaves WHERE username = ? AND status = ? AND start_date <= ? AND end_date >= ? AND leave_type = ?',
+        [ user.name, 'pending', today, today, 'full' ], ( err, pendingLeave ) =>
     {
         if ( err ) return res.status( 500 ).json( { error: err.message } );
         if ( pendingLeave )
@@ -772,12 +789,12 @@ app.get( '/attendance/status', requireLogin, ( req, res ) =>
     }
     const today = getEffectiveDate( req );
 
-    // First check if user has approved leave for today
-    return db.get( 'SELECT leave_id, reason FROM leaves WHERE username = ? AND status = ? AND start_date <= ? AND end_date >= ?',
+    // First check if user has approved FULL-DAY leave for today (half-day leaves allow attendance)
+    return db.get( 'SELECT leave_id, reason, leave_type FROM leaves WHERE username = ? AND status = ? AND start_date <= ? AND end_date >= ?',
         [ user.name, 'approved', today, today ], ( leaveErr, approvedLeave ) =>
     {
         if ( leaveErr ) return res.status( 500 ).json( { error: leaveErr.message } );
-        if ( approvedLeave )
+        if ( approvedLeave && approvedLeave.leave_type === 'full' )
         {
             return res.json( { status: 'off', message: 'You have approved leave today. Enjoy your time off! 🌴' } );
         }
@@ -890,7 +907,7 @@ app.post( '/mark-in', requireLogin, ( req, res ) =>
         // Check for pending leave first (only if not already confirmed by user)
         if ( !confirm_withdraw )
         {
-            return db.get( 'SELECT leave_id, start_date, end_date, reason FROM leaves WHERE username = ? AND status = ? AND start_date <= ? AND end_date >= ?',
+            return db.get( 'SELECT leave_id, start_date, end_date, reason, leave_type FROM leaves WHERE username = ? AND status = ? AND start_date <= ? AND end_date >= ?',
                 [ user.name, 'pending', date, date ], ( pendingErr, pendingLeave ) =>
             {
                 if ( pendingErr )
@@ -898,9 +915,10 @@ app.post( '/mark-in', requireLogin, ( req, res ) =>
                     console.error( 'Error checking pending leave', pendingErr );
                     return res.status( 500 ).json( { success: false, message: 'Could not verify leave status.' } );
                 }
-                if ( pendingLeave )
+                if ( pendingLeave && pendingLeave.leave_type === 'full' )
                 {
-                    // User has pending leave - ask for confirmation
+                    // User has pending FULL-DAY leave - ask for confirmation
+                    // Half-day leaves can coexist with attendance, so we don't prompt for them
                     const acceptsJson = req.headers && req.headers.accept && req.headers.accept.indexOf( 'application/json' ) !== -1;
                     if ( acceptsJson || req.xhr )
                     {
@@ -926,8 +944,8 @@ app.post( '/mark-in', requireLogin, ( req, res ) =>
 
         function proceedWithApprovedLeaveCheck ( pendingLeaveId = null )
         {
-            // Check if user has approved leave for this date
-            return db.get( 'SELECT leave_id, reason FROM leaves WHERE username = ? AND status = ? AND start_date <= ? AND end_date >= ?',
+            // Check if user has approved FULL-DAY leave for this date (half-day leaves allow attendance)
+            return db.get( 'SELECT leave_id, reason, leave_type FROM leaves WHERE username = ? AND status = ? AND start_date <= ? AND end_date >= ?',
                 [ user.name, 'approved', date, date ], ( leaveErr, approvedLeave ) =>
             {
                 if ( leaveErr )
@@ -935,7 +953,7 @@ app.post( '/mark-in', requireLogin, ( req, res ) =>
                     console.error( 'Error checking approved leave', leaveErr );
                     return res.status( 500 ).json( { success: false, message: 'Could not verify leave status.' } );
                 }
-                if ( approvedLeave )
+                if ( approvedLeave && approvedLeave.leave_type === 'full' )
                 {
                     const acceptsJson = req.headers && req.headers.accept && req.headers.accept.indexOf( 'application/json' ) !== -1;
                     if ( acceptsJson || req.xhr ) return res.status( 403 ).json( { success: false, message: `You have approved leave today. Enjoy your time off! 🌴` } );
@@ -1027,11 +1045,11 @@ app.post( '/mark-out', requireLogin, ( req, res ) =>
         } );
     }
 
-    // Prevent marking out on owner-declared off days or approved leave for non-owner users
+    // Prevent marking out on owner-declared off days or approved FULL-DAY leave for non-owner users
     if ( user && user.role !== 'owner' )
     {
-        // First check if user has approved leave for this date
-        return db.get( 'SELECT leave_id, reason FROM leaves WHERE username = ? AND status = ? AND start_date <= ? AND end_date >= ?',
+        // First check if user has approved FULL-DAY leave for this date (half-day leaves allow attendance)
+        return db.get( 'SELECT leave_id, reason, leave_type FROM leaves WHERE username = ? AND status = ? AND start_date <= ? AND end_date >= ?',
             [ user.name, 'approved', date, date ], ( leaveErr, approvedLeave ) =>
         {
             if ( leaveErr )
@@ -1039,7 +1057,7 @@ app.post( '/mark-out', requireLogin, ( req, res ) =>
                 console.error( 'Error checking approved leave', leaveErr );
                 return res.status( 500 ).json( { success: false, message: 'Could not verify leave status.' } );
             }
-            if ( approvedLeave )
+            if ( approvedLeave && approvedLeave.leave_type === 'full' )
             {
                 const acceptsJson = req.headers && req.headers.accept && req.headers.accept.indexOf( 'application/json' ) !== -1;
                 if ( acceptsJson || req.xhr ) return res.status( 403 ).json( { success: false, message: `You have approved leave today. Enjoy your time off! 🌴` } );
@@ -1126,11 +1144,14 @@ app.get( '/leaves/raw', requireLogin, ( req, res ) =>
 
 app.post( '/leaves/apply', requireLogin, async ( req, res ) =>
 {
-    const { start_date, end_date, reason } = req.body;
+    const { start_date, end_date, reason, leave_type } = req.body;
     const username = req.session.user.name;
 
     try
     {
+        // Validate leave_type
+        const leaveType = leave_type === 'half' ? 'half' : 'full';
+
         // Basic date validation and ordering
         if ( !start_date || !end_date ) return res.status( 400 ).json( { success: false, message: 'Start date and end date are required.' } );
         const start = moment( start_date, 'YYYY-MM-DD', true );
@@ -1138,7 +1159,14 @@ app.post( '/leaves/apply', requireLogin, async ( req, res ) =>
         if ( !start.isValid() || !end.isValid() ) return res.status( 400 ).json( { success: false, message: 'Dates must be in YYYY-MM-DD format.' } );
         if ( start.isAfter( end ) ) return res.status( 400 ).json( { success: false, message: 'Start date cannot be after end date.' } );
 
+        // Half-day leaves must be single-day only
+        if ( leaveType === 'half' && !start.isSame( end, 'day' ) )
+        {
+            return res.status( 400 ).json( { success: false, message: 'Half-day leaves can only be applied for a single day.' } );
+        }
+
         const leaveDuration = end.diff( start, 'days' ) + 1;
+        const leaveDays = leaveType === 'half' ? 0.5 : leaveDuration;
 
         // Validate reason: required and max 250 characters (including spaces)
         const reasonText = ( reason || '' ).toString().trim();
@@ -1152,20 +1180,34 @@ app.post( '/leaves/apply', requireLogin, async ( req, res ) =>
         }
         const storedReason = reasonText.substring( 0, 250 );
 
-        // Check attendance: user cannot apply for leave on days they have marked in
-        db.all( `SELECT date FROM attendance_${ username } WHERE date BETWEEN ? AND ? AND in_time IS NOT NULL`, [ start_date, end_date ], async ( attErr, attRows ) =>
+        // Check attendance: ONLY block full-day leaves if attendance exists
+        // Half-day leaves can coexist with attendance
+        if ( leaveType === 'full' )
         {
-            if ( attErr )
+            db.all( `SELECT date FROM attendance_${ username } WHERE date BETWEEN ? AND ? AND in_time IS NOT NULL`, [ start_date, end_date ], async ( attErr, attRows ) =>
             {
-                console.error( 'Error checking attendance for leave apply', attErr );
-                return res.status( 500 ).json( { success: false, message: 'Could not verify attendance. Please try again.' } );
-            }
-            if ( attRows && attRows.length > 0 )
-            {
-                // Format dates for a friendlier message (e.g. 24-November-2025)
-                const dates = attRows.map( r => formatDateForDisplay( r.date ) ).join( ', ' );
-                return res.status( 400 ).json( { success: false, message: `You were present on: ${ dates }. You can't request time off for days you've already worked.` } );
-            }
+                if ( attErr )
+                {
+                    console.error( 'Error checking attendance for leave apply', attErr );
+                    return res.status( 500 ).json( { success: false, message: 'Could not verify attendance. Please try again.' } );
+                }
+                if ( attRows && attRows.length > 0 )
+                {
+                    // Format dates for a friendlier message (e.g. 24-November-2025)
+                    const dates = attRows.map( r => formatDateForDisplay( r.date ) ).join( ', ' );
+                    return res.status( 400 ).json( { success: false, message: `You were present on: ${ dates }. You can't request time off for days you've already worked.` } );
+                }
+                return continueLeaveValidation();
+            } );
+        }
+        else
+        {
+            // Half-day leaves can be applied even with attendance
+            return continueLeaveValidation();
+        }
+
+        async function continueLeaveValidation ()
+        {
 
             // Check whether any requested date is an off-day (ad-hoc, holiday, weekly)
             const checkRangeForOffDates = async ( startD, endD ) =>
@@ -1216,7 +1258,7 @@ app.post( '/leaves/apply', requireLogin, async ( req, res ) =>
                 try
                 {
                     const balance = await calculateAndUpdateLeaveBalance( username );
-                    if ( balance < leaveDuration )
+                    if ( balance < leaveDays )
                     {
                         return res.status( 400 ).json( { success: false, message: `You don't have enough days available. Current balance: ${ balance } days.` } );
                     }
@@ -1230,20 +1272,21 @@ app.post( '/leaves/apply', requireLogin, async ( req, res ) =>
                 const today = getEffectiveDate( req );
                 const isBackdated = start_date < today ? 1 : 0;
 
-                // Insert leave with metadata
-                db.run( 'INSERT INTO leaves (username, start_date, end_date, reason, is_backdated) VALUES (?, ?, ?, ?, ?)',
-                    [ username, start_date, end_date, storedReason, isBackdated ], function ( insErr )
+                // Insert leave with metadata including leave_type
+                db.run( 'INSERT INTO leaves (username, start_date, end_date, reason, is_backdated, leave_type) VALUES (?, ?, ?, ?, ?, ?)',
+                    [ username, start_date, end_date, storedReason, isBackdated, leaveType ], function ( insErr )
                 {
                     if ( insErr )
                     {
                         console.error( 'Error inserting leave', insErr );
                         return res.status( 500 ).json( { success: false, message: 'We could not submit your leave request. Please try again later.' } );
                     }
-                    console.log( `${ username } applied for leave from ${ formatDateForDisplay( start_date ) } to ${ formatDateForDisplay( end_date ) }` );
+                    const leaveTypeText = leaveType === 'half' ? 'half-day' : 'full-day';
+                    console.log( `${ username } applied for ${ leaveTypeText } leave from ${ formatDateForDisplay( start_date ) } to ${ formatDateForDisplay( end_date ) }` );
                     return res.status( 200 ).json( { success: true, message: 'Request submitted! We\'ll let you know once it\'s reviewed. ✅' } );
                 } );
             } );
-        } );
+        }
     } catch ( error )
     {
         res.status( 500 ).json( { success: false, message: error.message } );
@@ -2011,8 +2054,10 @@ app.post( '/admin/leaves/action', requireAdmin, async ( req, res ) =>
 
         if ( status === 'approved' )
         {
+            // Calculate leave days based on leave_type
             const leaveDuration = moment( leave.end_date ).diff( moment( leave.start_date ), 'days' ) + 1;
-            await deductLeaveBalance( leave.username, leaveDuration );
+            const leaveDays = leave.leave_type === 'half' ? 0.5 : leaveDuration;
+            await deductLeaveBalance( leave.username, leaveDays );
         }
 
         await new Promise( ( resolve, reject ) =>
