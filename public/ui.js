@@ -266,7 +266,7 @@ function initBottomNav ( currentPage, userRole )
   // Define navigation items for each role
   const navItems = {
     owner: [
-      { page: 'admin', icon: 'fa-user-shield', href: '/admin', title: 'Team' },
+      { page: 'team', icon: 'fa-user-shield', href: '/team', title: 'Team Management' },
       { page: 'appsettings', icon: 'fa-cog', href: '/appsettings', title: 'Settings' },
       { page: 'visual', icon: 'fa-calendar-alt', href: '/visual', title: 'Calendar' },
       { page: 'profile', icon: 'fa-user-circle', href: '/profile', title: 'Profile' },
@@ -274,7 +274,7 @@ function initBottomNav ( currentPage, userRole )
     ],
     manager: [
       { page: 'dashboard', icon: 'fa-home', href: '/dashboard', title: 'Home' },
-      { page: 'admin', icon: 'fa-user-shield', href: '/admin', title: 'Team' },
+      { page: 'team', icon: 'fa-user-shield', href: '/team', title: 'Team Management' },
       { page: 'visual', icon: 'fa-calendar-alt', href: '/visual', title: 'Calendar' },
       { page: 'profile', icon: 'fa-user-circle', href: '/profile', title: 'Profile' },
       { page: 'logout', icon: 'fa-sign-out-alt', href: '/logout', title: 'Logout' }

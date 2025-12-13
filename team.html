@@ -4,7 +4,7 @@
     <head>
         <meta charset="UTF-8">
         <meta name="viewport" content="width=device-width, initial-scale=1.0">
-        <title>Admin Dashboard</title>
+        <title>Team Management</title>
 
         <link rel="stylesheet" href="/mobile.css">
         <link rel="stylesheet" href="/flatpickr.min.css">
@@ -544,7 +544,7 @@
             {
                 const userRes = await fetch( '/user/me' );
                 const user = await userRes.json();
-                initBottomNav( 'admin', user.role );
+                initBottomNav( 'team', user.role );
             } );
 
             // Event delegation for selfie thumbnails

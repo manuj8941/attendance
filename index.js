@@ -241,7 +241,7 @@ function requireAdmin ( req, res, next )
         next();
     } else
     {
-        res.status( 403 ).send( 'You are not authorized to access that page.' );
+        return res.redirect( '/?error=access_denied' );
     }
 }
 
@@ -576,11 +576,11 @@ app.get( '/dashboard', requireLogin, ( req, res ) =>
 {
     // Unified dashboard route: serve admin UI to admins, employee UI to others
     const role = req.session.user && req.session.user.role;
-    // Owners get redirected to /admin; managers are employees and should use the
-    // regular dashboard so they can mark attendance but still access admin APIs via links.
+    // Owners get redirected to /team; managers are employees and should use the
+    // regular dashboard so they can mark attendance but still access team APIs via links.
     if ( role === 'owner' )
     {
-        return res.redirect( '/admin' );
+        return res.redirect( '/team' );
     }
     return res.sendFile( path.join( __dirname, 'dashboard.html' ) );
 } );
@@ -1341,11 +1341,11 @@ app.get( '/leaves', requireLogin, ( req, res ) =>
     } );
 } );
 
-// --- ADMIN ROUTES ---
-app.get( '/admin', requireAdmin, ( req, res ) =>
+// --- TEAM MANAGEMENT ROUTES ---
+app.get( '/team', requireAdmin, ( req, res ) =>
 {
-    // Serve admin UI to owners and managers
-    return res.sendFile( path.join( __dirname, 'admin.html' ) );
+    // Serve team management UI to owners and managers
+    return res.sendFile( path.join( __dirname, 'team.html' ) );
 } );
 
 app.get( '/admin/users', requireAdmin, async ( req, res ) =>
