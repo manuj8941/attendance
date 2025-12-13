@@ -738,6 +738,30 @@ app.get( '/visual/data', requireLogin, async ( req, res ) =>
 
 // (visual page route already registered above)
 
+// Check if user has pending leave for today (used for pre-attendance confirmation)
+app.get( '/attendance/pending-leave-check', requireLogin, ( req, res ) =>
+{
+    const user = req.session.user;
+    const today = getEffectiveDate( req );
+
+    db.get( 'SELECT leave_id, start_date, end_date, reason FROM leaves WHERE username = ? AND status = ? AND start_date <= ? AND end_date >= ?',
+        [ user.name, 'pending', today, today ], ( err, pendingLeave ) =>
+    {
+        if ( err ) return res.status( 500 ).json( { error: err.message } );
+        if ( pendingLeave )
+        {
+            return res.json( {
+                hasPendingLeave: true,
+                leave_id: pendingLeave.leave_id,
+                start_date: pendingLeave.start_date,
+                end_date: pendingLeave.end_date,
+                reason: pendingLeave.reason
+            } );
+        }
+        return res.json( { hasPendingLeave: false } );
+    } );
+} );
+
 app.get( '/attendance/status', requireLogin, ( req, res ) =>
 {
     const user = req.session.user;
@@ -747,34 +771,48 @@ app.get( '/attendance/status', requireLogin, ( req, res ) =>
         return res.json( { status: 'not_applicable', message: 'Attendance is not applicable for owner/admin accounts.' } );
     }
     const today = getEffectiveDate( req );
-    return checkIfDateIsOff( today, ( err, off ) =>
+
+    // First check if user has approved leave for today
+    return db.get( 'SELECT leave_id, reason FROM leaves WHERE username = ? AND status = ? AND start_date <= ? AND end_date >= ?',
+        [ user.name, 'approved', today, today ], ( leaveErr, approvedLeave ) =>
     {
-        if ( err ) return res.status( 500 ).json( { error: err.message } );
-        if ( off && off.off )
+        if ( leaveErr ) return res.status( 500 ).json( { error: leaveErr.message } );
+        if ( approvedLeave )
         {
-            const msg = off.type === 'ad_hoc' ? `Special day off today: ${ off.reason || '' } 🎉` : ( off.type === 'holiday' ? `It's a holiday today: ${ off.name } 🎊` : 'Weekly off today - enjoy your break! 😊' );
-            return res.json( { status: 'off', message: msg } );
+            return res.json( { status: 'off', message: 'You have approved leave today. Enjoy your time off! 🌴' } );
         }
 
-        db.get( `SELECT * FROM attendance_${ user.name } WHERE date = ?`, [ today ], ( err2, row ) =>
+        // Then check if it's an off-day
+        return checkIfDateIsOff( today, ( err, off ) =>
         {
-            if ( err2 ) return res.status( 500 ).json( { error: err2.message } );
-            if ( !row ) return res.json( { status: 'not_marked_in' } );
-            if ( row.in_time && !row.out_time ) return res.json( { status: 'marked_in' } );
-            if ( row.in_time && row.out_time ) return res.json( { status: 'marked_out' } );
+            if ( err ) return res.status( 500 ).json( { error: err.message } );
+            if ( off && off.off )
+            {
+                const msg = off.type === 'ad_hoc' ? `Special day off today: ${ off.reason || '' } 🎉` : ( off.type === 'holiday' ? `It's a holiday today: ${ off.name } 🎊` : 'Weekly off today - enjoy your break! 😊' );
+                return res.json( { status: 'off', message: msg } );
+            }
+
+            // Check attendance status
+            db.get( `SELECT * FROM attendance_${ user.name } WHERE date = ?`, [ today ], ( err2, row ) =>
+            {
+                if ( err2 ) return res.status( 500 ).json( { error: err2.message } );
+                if ( !row ) return res.json( { status: 'not_marked_in' } );
+                if ( row.in_time && !row.out_time ) return res.json( { status: 'marked_in' } );
+                if ( row.in_time && row.out_time ) return res.json( { status: 'marked_out' } );
+            } );
         } );
     } );
 } );
 
 app.post( '/mark-in', requireLogin, ( req, res ) =>
 {
-    const { latitude, longitude, selfie } = req.body;
+    const { latitude, longitude, selfie, confirm_withdraw } = req.body;
     const user = req.session.user;
     const now = getMoment();
     const date = getEffectiveDate( req );
     const time = now.format( 'HH:mm:ss' );
 
-    function doMarkIn ()
+    function doMarkIn ( pendingLeaveId = null )
     {
         const selfiePath = path.join( selfiesDir, user.name, `${ user.name }_${ date }_${ time.replace( /:/g, '-' ) }_in.jpg` );
         const base64Data = ( selfie || '' ).replace( /^data:image\/jpeg;base64,/, "" );
@@ -798,50 +836,137 @@ app.post( '/mark-in', requireLogin, ( req, res ) =>
                 return res.redirect( '/dashboard' );
             }
 
-            db.run( `INSERT INTO attendance_${ user.name } (date, in_time, in_latitude, in_longitude, in_selfie_path) VALUES (?, ?, ?, ?, ?)`,
-                [ date, time, latitude, longitude, selfiePath ], function ( err )
+            // If there's a pending leave to withdraw, do it first
+            const finalizeMarkIn = () =>
             {
-                if ( err )
+                db.run( `INSERT INTO attendance_${ user.name } (date, in_time, in_latitude, in_longitude, in_selfie_path) VALUES (?, ?, ?, ?, ?)`,
+                    [ date, time, latitude, longitude, selfiePath ], function ( err )
                 {
-                    console.error( err.message );
+                    if ( err )
+                    {
+                        console.error( err.message );
+                        const acceptsJson = req.headers && req.headers.accept && req.headers.accept.indexOf( 'application/json' ) !== -1;
+                        const isXhr = req.xhr || ( req.headers && req.headers[ 'x-requested-with' ] === 'XMLHttpRequest' );
+                        if ( acceptsJson || isXhr ) return res.status( 500 ).json( { success: false, message: 'Could not mark in. Please try again.' } );
+                        return res.redirect( '/dashboard' );
+                    }
+                    console.log( `${ user.name } marked in on ${ now.format( 'D-MMM-YY' ) } at ${ now.format( 'h:mm A' ) }` );
                     const acceptsJson = req.headers && req.headers.accept && req.headers.accept.indexOf( 'application/json' ) !== -1;
                     const isXhr = req.xhr || ( req.headers && req.headers[ 'x-requested-with' ] === 'XMLHttpRequest' );
-                    if ( acceptsJson || isXhr ) return res.status( 500 ).json( { success: false, message: 'Could not mark in. Please try again.' } );
-                    return res.redirect( '/dashboard' );
-                }
-                console.log( `${ user.name } marked in on ${ now.format( 'D-MMM-YY' ) } at ${ now.format( 'h:mm A' ) }` );
-                const acceptsJson = req.headers && req.headers.accept && req.headers.accept.indexOf( 'application/json' ) !== -1;
-                const isXhr = req.xhr || ( req.headers && req.headers[ 'x-requested-with' ] === 'XMLHttpRequest' );
-                if ( acceptsJson || isXhr ) return res.json( { success: true, message: 'Checked in successfully! Have a great day! ✅' } );
-                res.redirect( '/dashboard' );
-            } );
+                    const msg = pendingLeaveId ? 'Checked in successfully! Your pending leave request has been withdrawn. ✅' : 'Checked in successfully! Have a great day! ✅';
+                    if ( acceptsJson || isXhr ) return res.json( { success: true, message: msg } );
+                    res.redirect( '/dashboard' );
+                } );
+            };
+
+            if ( pendingLeaveId )
+            {
+                // Auto-withdraw the pending leave
+                const ts = new Date().toISOString();
+                db.run( 'UPDATE leaves SET taken_back = 1, taken_back_at = ?, status = ? WHERE leave_id = ?',
+                    [ ts, 'withdrawn', pendingLeaveId ], function ( withdrawErr )
+                {
+                    if ( withdrawErr )
+                    {
+                        console.error( 'Error withdrawing pending leave:', withdrawErr );
+                        const acceptsJson = req.headers && req.headers.accept && req.headers.accept.indexOf( 'application/json' ) !== -1;
+                        const isXhr = req.xhr || ( req.headers && req.headers[ 'x-requested-with' ] === 'XMLHttpRequest' );
+                        if ( acceptsJson || isXhr ) return res.status( 500 ).json( { success: false, message: 'Could not withdraw pending leave. Please try again.' } );
+                        return res.redirect( '/dashboard' );
+                    }
+                    console.log( `${ user.name } auto-withdrew pending leave ${ pendingLeaveId } upon marking attendance` );
+                    finalizeMarkIn();
+                } );
+            } else
+            {
+                finalizeMarkIn();
+            }
         } );
     }
 
-    // Non-owner users must not mark attendance on off-days
+    // Non-owner users must not mark attendance on off-days or when they have approved leave
     if ( user && user.role !== 'owner' )
     {
-        return checkIfDateIsOff( date, ( err, off ) =>
+        // Check for pending leave first (only if not already confirmed by user)
+        if ( !confirm_withdraw )
         {
-            if ( err )
+            return db.get( 'SELECT leave_id, start_date, end_date, reason FROM leaves WHERE username = ? AND status = ? AND start_date <= ? AND end_date >= ?',
+                [ user.name, 'pending', date, date ], ( pendingErr, pendingLeave ) =>
             {
-                console.error( 'Error checking off-day', err );
-                return res.status( 500 ).json( { success: false, message: 'Could not verify off-day status.' } );
-            }
-            if ( off && off.off )
+                if ( pendingErr )
+                {
+                    console.error( 'Error checking pending leave', pendingErr );
+                    return res.status( 500 ).json( { success: false, message: 'Could not verify leave status.' } );
+                }
+                if ( pendingLeave )
+                {
+                    // User has pending leave - ask for confirmation
+                    const acceptsJson = req.headers && req.headers.accept && req.headers.accept.indexOf( 'application/json' ) !== -1;
+                    if ( acceptsJson || req.xhr )
+                    {
+                        return res.status( 409 ).json( {
+                            success: false,
+                            requiresConfirmation: true,
+                            leave_id: pendingLeave.leave_id,
+                            message: 'You have a pending leave request for today. If you mark attendance, your leave request will be automatically withdrawn.'
+                        } );
+                    }
+                    return res.redirect( '/dashboard' );
+                }
+
+                // No pending leave, continue with normal checks
+                proceedWithApprovedLeaveCheck();
+            } );
+        } else
+        {
+            // User confirmed withdrawal, proceed with the leave_id
+            const pendingLeaveId = confirm_withdraw;
+            proceedWithApprovedLeaveCheck( pendingLeaveId );
+        }
+
+        function proceedWithApprovedLeaveCheck ( pendingLeaveId = null )
+        {
+            // Check if user has approved leave for this date
+            return db.get( 'SELECT leave_id, reason FROM leaves WHERE username = ? AND status = ? AND start_date <= ? AND end_date >= ?',
+                [ user.name, 'approved', date, date ], ( leaveErr, approvedLeave ) =>
             {
-                const msg = off.type === 'ad_hoc' ? `Special day off today: ${ off.reason || '' } 🎉` : ( off.type === 'holiday' ? `It's a holiday today: ${ off.name } 🎊` : 'Weekly off today - enjoy your break! 😊' );
-                const acceptsJson = req.headers && req.headers.accept && req.headers.accept.indexOf( 'application/json' ) !== -1;
-                if ( acceptsJson || req.xhr ) return res.status( 403 ).json( { success: false, message: msg } );
-                return res.redirect( '/dashboard' );
-            }
-            doMarkIn();
-        } );
+                if ( leaveErr )
+                {
+                    console.error( 'Error checking approved leave', leaveErr );
+                    return res.status( 500 ).json( { success: false, message: 'Could not verify leave status.' } );
+                }
+                if ( approvedLeave )
+                {
+                    const acceptsJson = req.headers && req.headers.accept && req.headers.accept.indexOf( 'application/json' ) !== -1;
+                    if ( acceptsJson || req.xhr ) return res.status( 403 ).json( { success: false, message: `You have approved leave today. Enjoy your time off! 🌴` } );
+                    return res.redirect( '/dashboard' );
+                }
+
+                // Then check if it's an off-day
+                return checkIfDateIsOff( date, ( err, off ) =>
+                {
+                    if ( err )
+                    {
+                        console.error( 'Error checking off-day', err );
+                        return res.status( 500 ).json( { success: false, message: 'Could not verify off-day status.' } );
+                    }
+                    if ( off && off.off )
+                    {
+                        const msg = off.type === 'ad_hoc' ? `Special day off today: ${ off.reason || '' } 🎉` : ( off.type === 'holiday' ? `It's a holiday today: ${ off.name } 🎊` : 'Weekly off today - enjoy your break! 😊' );
+                        const acceptsJson = req.headers && req.headers.accept && req.headers.accept.indexOf( 'application/json' ) !== -1;
+                        if ( acceptsJson || req.xhr ) return res.status( 403 ).json( { success: false, message: msg } );
+                        return res.redirect( '/dashboard' );
+                    }
+                    doMarkIn( pendingLeaveId );
+                } );
+            } );
+        }
+
+        return; // Exit here for non-owner users
     }
 
     // owner or fallback
     doMarkIn();
-
 } );
 
 app.post( '/mark-out', requireLogin, ( req, res ) =>
@@ -902,26 +1027,44 @@ app.post( '/mark-out', requireLogin, ( req, res ) =>
         } );
     }
 
-    // Prevent marking out on owner-declared off days for non-owner users
+    // Prevent marking out on owner-declared off days or approved leave for non-owner users
     if ( user && user.role !== 'owner' )
     {
-        return checkIfDateIsOff( date, ( err, off ) =>
+        // First check if user has approved leave for this date
+        return db.get( 'SELECT leave_id, reason FROM leaves WHERE username = ? AND status = ? AND start_date <= ? AND end_date >= ?',
+            [ user.name, 'approved', date, date ], ( leaveErr, approvedLeave ) =>
         {
-            if ( err )
+            if ( leaveErr )
             {
-                console.error( 'Error checking off-day', err );
-                return res.status( 500 ).json( { success: false, message: 'Could not verify off-day status.' } );
+                console.error( 'Error checking approved leave', leaveErr );
+                return res.status( 500 ).json( { success: false, message: 'Could not verify leave status.' } );
             }
-            if ( off && off.off )
+            if ( approvedLeave )
             {
-                const msg = off.type === 'ad_hoc' ? `Special day off today: ${ off.reason || '' } 🎉` : ( off.type === 'holiday' ? `It's a holiday today: ${ off.name } 🎊` : 'Weekly off today - enjoy your break! 😊' );
                 const acceptsJson = req.headers && req.headers.accept && req.headers.accept.indexOf( 'application/json' ) !== -1;
-                if ( acceptsJson || req.xhr ) return res.status( 403 ).json( { success: false, message: msg } );
+                if ( acceptsJson || req.xhr ) return res.status( 403 ).json( { success: false, message: `You have approved leave today. Enjoy your time off! 🌴` } );
                 return res.redirect( '/dashboard' );
             }
 
-            // proceed normally
-            doMarkOut();
+            // Then check if it's an off-day
+            return checkIfDateIsOff( date, ( err, off ) =>
+            {
+                if ( err )
+                {
+                    console.error( 'Error checking off-day', err );
+                    return res.status( 500 ).json( { success: false, message: 'Could not verify off-day status.' } );
+                }
+                if ( off && off.off )
+                {
+                    const msg = off.type === 'ad_hoc' ? `Special day off today: ${ off.reason || '' } 🎉` : ( off.type === 'holiday' ? `It's a holiday today: ${ off.name } 🎊` : 'Weekly off today - enjoy your break! 😊' );
+                    const acceptsJson = req.headers && req.headers.accept && req.headers.accept.indexOf( 'application/json' ) !== -1;
+                    if ( acceptsJson || req.xhr ) return res.status( 403 ).json( { success: false, message: msg } );
+                    return res.redirect( '/dashboard' );
+                }
+
+                // proceed normally
+                doMarkOut();
+            } );
         } );
     }
 
@@ -1447,12 +1590,13 @@ app.get( '/branding', async ( req, res ) =>
 {
     try
     {
-        const settings = await getSettings( [ 'company_logo', 'brand_color', 'company_name' ] );
+        const settings = await getSettings( [ 'company_logo', 'brand_color', 'company_name', 'timezone' ] );
 
         res.json( {
             logo: settings.company_logo || '',
             brandColor: settings.brand_color || '#0ea5a4',
-            companyName: settings.company_name || 'Attendance System'
+            companyName: settings.company_name || 'Attendance System',
+            timezone: settings.timezone || 'Asia/Kolkata'
         } );
     } catch ( err )
     {

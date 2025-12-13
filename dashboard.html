@@ -20,6 +20,9 @@
         <div class="container">
             <h1><i class="fas fa-th-large"></i> Dashboard</h1>
             <p>Welcome, <strong id="user-name"></strong>! (<span id="user-role"></span>)</p>
+            <p style="color:#666;font-size:0.9rem;margin-top:4px;">
+                <i class="fas fa-calendar-day"></i> <span id="current-datetime"></span>
+            </p>
 
             <!-- Attendance Marking Section -->
             <div class="section" id="attendance-section">
@@ -122,6 +125,54 @@
                 const currentUser = await userRes.json();
                 document.getElementById( 'user-name' ).textContent = currentUser.displayName || currentUser.name;
                 document.getElementById( 'user-role' ).textContent = ( currentUser.role || '' ).replace( '_', ' ' );
+
+                // Fetch branding/timezone
+                const brandingRes = await fetch( '/branding' );
+                const branding = await brandingRes.json();
+                const timezone = branding && branding.timezone ? branding.timezone : 'Asia/Kolkata';
+
+                // Display current date and time with timezone
+                function updateDateTime ()
+                {
+                    const now = new Date();
+                    const options = {
+                        timeZone: timezone,
+                        weekday: 'long',
+                        day: 'numeric',
+                        month: 'short',
+                        year: 'numeric',
+                        hour: 'numeric',
+                        minute: '2-digit',
+                        hour12: true
+                    };
+                    const formatter = new Intl.DateTimeFormat( 'en-GB', options );
+                    const parts = formatter.formatToParts( now );
+
+                    const weekday = parts.find( p => p.type === 'weekday' ).value;
+                    const day = parts.find( p => p.type === 'day' ).value;
+                    const month = parts.find( p => p.type === 'month' ).value;
+                    const year = parts.find( p => p.type === 'year' ).value;
+                    const hour = parts.find( p => p.type === 'hour' ).value;
+                    const minute = parts.find( p => p.type === 'minute' ).value;
+                    const dayPeriod = parts.find( p => p.type === 'dayPeriod' );
+                    const ampm = dayPeriod ? dayPeriod.value.toUpperCase() : '';
+
+                    // Get timezone abbreviation
+                    let tzAbbr = 'UTC';
+                    try
+                    {
+                        const tzString = now.toLocaleString( 'en-US', { timeZone: timezone, timeZoneName: 'short' } );
+                        const match = tzString.match( /\b([A-Z]{2,5})\b$/ );
+                        if ( match ) tzAbbr = match[ 1 ];
+                    } catch ( e ) { /* fallback to UTC */ }
+
+                    const dateTimeString = `Today is ${ weekday }, ${ day }-${ month }-${ year } (${ tzAbbr }), ${ hour }:${ minute } ${ ampm }`;
+                    document.getElementById( 'current-datetime' ).textContent = dateTimeString;
+                }
+
+                // Initial update and set interval to update every minute
+                updateDateTime();
+                setInterval( updateDateTime, 60000 );
 
                 // Load all parts of the dashboard
                 loadAttendanceMarker( currentUser );
@@ -487,6 +538,57 @@
                             const result = await resp.json();
 
                             actionButton.disabled = false;
+
+                            // Check if pending leave confirmation is required
+                            if ( resp.status === 409 && result.requiresConfirmation )
+                            {
+                                // User has pending leave, ask for confirmation
+                                const confirmWithdraw = await showAppConfirm(
+                                    'You have a pending leave request for today.\n\nIf you mark attendance, your leave request will be automatically withdrawn.\n\nDo you want to continue?',
+                                    'No, Keep My Leave',
+                                    'Yes, Mark Attendance'
+                                );
+
+                                if ( confirmWithdraw )
+                                {
+                                    // User confirmed, resubmit with confirmation flag
+                                    payload.confirm_withdraw = result.leave_id;
+                                    const retryResp = await fetch( form.action, {
+                                        method: 'POST',
+                                        headers: {
+                                            'Content-Type': 'application/json',
+                                            'X-Requested-With': 'XMLHttpRequest'
+                                        },
+                                        body: JSON.stringify( payload )
+                                    } );
+                                    const retryResult = await retryResp.json();
+
+                                    if ( retryResp.ok && retryResult.success )
+                                    {
+                                        showModal( retryResult.message || 'Action completed.', 'success', async () =>
+                                        {
+                                            await loadAttendanceHistory();
+                                            await loadLeaveHistory(); // Refresh leave history too
+                                            if ( pendingAction === '/mark-in' )
+                                            {
+                                                form.action = '/mark-out';
+                                                pendingAction = '/mark-out';
+                                                setOpenCaption();
+                                                actionButton.disabled = false;
+                                            }
+                                        } );
+                                    } else
+                                    {
+                                        setOpenCaption();
+                                        showModal( retryResult.message || 'Could not complete action.', 'error' );
+                                    }
+                                } else
+                                {
+                                    // User cancelled, reset UI
+                                    setOpenCaption();
+                                }
+                                return;
+                            }
 
                             if ( resp.ok && result.success )
                             {

@@ -79,14 +79,56 @@
                 </div>
             </div>
 
-            <div class="section" id="test-date-section" style="background:#fff6f6;border:1px solid #ffd6d6;">
-                <h2><i class="fas fa-flask"></i> Testing Mode</h2>
-                <p class="small">Simulate a different date for testing. This affects everyone in the system.</p>
-                <label for="test-date-input">Test Date</label>
-                <input type="date" id="test-date-input">
-                <button id="set-test-date"><i class="fas fa-flask"></i> Enable Testing</button>
-                <button id="clear-test-date" style="margin-top:8px"><i class="fas fa-redo"></i> Back to Normal</button>
-                <div id="current-test-date" class="small" style="margin-top:8px"></div>
+            <div class="section" id="test-date-section" style="background:linear-gradient(135deg, #fff9e6 0%, #fff3cd 100%);
+                        border:2px solid #ff9800;
+                        box-shadow:0 4px 12px rgba(255,152,0,0.2);
+                        position:relative;
+                        padding:20px;">
+
+                <!-- Warning Badge -->
+                <div
+                    style="position:absolute;top:12px;right:12px;background:#ff9800;color:white;padding:4px 12px;border-radius:20px;font-size:0.75rem;font-weight:600;text-transform:uppercase;">
+                    <i class="fas fa-exclamation-triangle"></i> Test Mode
+                </div>
+
+                <h2 style="color:#e65100;margin-top:0;">
+                    <i class="fas fa-flask" style="color:#ff9800;font-size:1.5rem;margin-right:8px;"></i>
+                    Testing Mode
+                </h2>
+
+                <!-- Warning Message Box -->
+                <div
+                    style="background:#fff;border-left:4px solid #ff9800;padding:12px;margin:16px 0;border-radius:4px;">
+                    <div style="display:flex;align-items:start;gap:12px;">
+                        <i class="fas fa-exclamation-triangle"
+                            style="color:#ff9800;font-size:1.5rem;margin-top:2px;"></i>
+                        <div>
+                            <strong style="color:#e65100;display:block;margin-bottom:4px;">⚠️ CAUTION: System-Wide
+                                Impact</strong>
+                            <p style="margin:0;font-size:0.875rem;color:#666;line-height:1.5;">
+                                This simulates a different date <strong>for the entire system</strong>.
+                                All users will see and work with the test date. Use only for testing purposes.
+                            </p>
+                        </div>
+                    </div>
+                </div>
+
+                <label for="test-date-input" style="font-weight:600;color:#e65100;">
+                    <i class="fas fa-calendar-alt"></i> Test Date
+                </label>
+                <input type="date" id="test-date-input" style="border:2px solid #ff9800;">
+
+                <div style="display:flex;gap:8px;margin-top:12px;">
+                    <button id="set-test-date" style="background:#ff9800;border:none;color:white;flex:1;">
+                        <i class="fas fa-flask"></i> Enable Testing Mode
+                    </button>
+                    <button id="clear-test-date" style="background:#4caf50;border:none;color:white;flex:1;">
+                        <i class="fas fa-undo"></i> Return to Normal
+                    </button>
+                </div>
+
+                <div id="current-test-date"
+                    style="margin-top:12px;padding:10px;background:#fff;border-radius:4px;font-weight:600;"></div>
             </div>
 
             <div class="section">
@@ -579,7 +621,10 @@
                                 {
                                     info.textContent = 'No test date override is set.';
                                     input.value = '';
-                                    showAppModal( 'Test date override cleared.', 'success' );
+                                    showAppModal( 'System returned to normal! ✅', 'success', () =>
+                                    {
+                                        location.reload();
+                                    } );
                                 } else
                                 {
                                     showAppModal( body.message || 'Could not clear test date.', 'error' );

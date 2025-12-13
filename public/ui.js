@@ -82,7 +82,7 @@
   }
 
   // Promise-based confirm modal. Resolves true if OK clicked, false if cancelled.
-  function showAppConfirm ( message )
+  function showAppConfirm ( message, cancelText = 'Cancel', okText = 'OK' )
   {
     return new Promise( ( resolve ) =>
     {
@@ -106,8 +106,8 @@
           <div class="modal-content card">
             <p id="app-confirm-message" style="margin-top:0"></p>
             <div style="margin-top:12px;display:flex;gap:8px;justify-content:flex-end">
-              <button id="app-confirm-cancel" class="btn">Cancel</button>
-              <button id="app-confirm-ok" class="btn btn-primary">OK</button>
+              <button id="app-confirm-cancel" class="btn"></button>
+              <button id="app-confirm-ok" class="btn btn-primary"></button>
             </div>
           </div>
         `;
@@ -117,6 +117,10 @@
       const msg = document.getElementById( 'app-confirm-message' );
       const ok = document.getElementById( 'app-confirm-ok' );
       const cancel = document.getElementById( 'app-confirm-cancel' );
+
+      // Set button text dynamically
+      cancel.textContent = cancelText;
+      ok.textContent = okText;
 
       function cleanup ( result )
       {
