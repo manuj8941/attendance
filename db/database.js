@@ -1,19 +1,9 @@
-const sqlite3 = require( 'sqlite3' ).verbose();
+const { db, useTurso } = require( './connection' );
 const bcrypt = require( 'bcryptjs' );
 const moment = require( 'moment-timezone' );
 const { users } = require( './seed' );
 const { getMoment } = require( './timezone' );
 const SALT_ROUNDS = 10;
-
-// Initialize database connection
-const db = new sqlite3.Database( './attendance.db', ( err ) =>
-{
-    if ( err )
-    {
-        console.error( err.message );
-    }
-    console.log( 'Connected to the attendance database.' );
-} );
 
 // Database initialization function
 function initializeDatabase ( app, accrueLeavesCallback )

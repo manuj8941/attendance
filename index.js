@@ -7,6 +7,7 @@ const moment = require( 'moment-timezone' );
 const { db, users, initializeDatabase } = require( './db/database' );
 const { getSetting, updateSetting, getSettings, initTimezone, updateTimezone } = require( './db/settings' );
 const { getMoment, getTimezone } = require( './db/timezone' );
+const { saveFile, deleteFile, useCloudStorage } = require( './db/storage' );
 const {
     normalizeUsername,
     capitalizeUsername,
@@ -64,8 +65,14 @@ app.use( session( {
 } ) );
 app.use( express.urlencoded( { extended: true, limit: '50mb' } ) );
 app.use( express.json( { limit: '50mb' } ) );
-app.use( '/selfies', express.static( 'selfies' ) );
-app.use( '/logos', express.static( 'logos' ) );
+
+// Static file serving (only for local storage mode)
+if ( !useCloudStorage )
+{
+    app.use( '/selfies', express.static( 'selfies' ) );
+    app.use( '/logos', express.static( 'logos' ) );
+}
+
 // Serve public assets (CSS, JS) including mobile stylesheet
 app.use( express.static( 'public' ) );
 
@@ -835,7 +842,7 @@ app.get( '/attendance/status', requireLogin, ( req, res ) =>
     } );
 } );
 
-app.post( '/mark-in', requireLogin, ( req, res ) =>
+app.post( '/mark-in', requireLogin, async ( req, res ) =>
 {
     const { latitude, longitude, selfie, confirm_withdraw } = req.body;
     const user = req.session.user;
@@ -843,11 +850,26 @@ app.post( '/mark-in', requireLogin, ( req, res ) =>
     const date = getEffectiveDate( req );
     const time = now.format( 'HH:mm:ss' );
 
+    // Save selfie first (async)
+    let selfiePath;
+    try
+    {
+        const base64Data = ( selfie || '' ).replace( /^data:image\/\w+;base64,/, "" );
+        const buffer = Buffer.from( base64Data, 'base64' );
+        const filename = `${ user.name }_${ date }_${ time.replace( /:/g, '-' ) }_in.jpg`;
+        const relativePath = `selfies/${ user.name }/${ filename }`;
+        selfiePath = await saveFile( buffer, relativePath );
+    }
+    catch ( saveErr )
+    {
+        console.error( 'Error saving selfie:', saveErr );
+        const acceptsJson = req.headers && req.headers.accept && req.headers.accept.indexOf( 'application/json' ) !== -1;
+        if ( acceptsJson || req.xhr ) return res.status( 500 ).json( { success: false, message: 'Could not save selfie. Please try again.' } );
+        return res.redirect( '/dashboard' );
+    }
+
     function doMarkIn ( pendingLeaveId = null )
     {
-        const selfiePath = path.join( selfiesDir, user.name, `${ user.name }_${ date }_${ time.replace( /:/g, '-' ) }_in.jpg` );
-        const base64Data = ( selfie || '' ).replace( /^data:image\/jpeg;base64,/, "" );
-        fs.writeFile( selfiePath, base64Data, 'base64', ( err ) => { if ( err ) console.error( err ); } );
         // Defensive: ensure user hasn't already marked in for this date
         db.get( `SELECT in_time FROM attendance_${ user.name } WHERE date = ?`, [ date ], ( selErr, existing ) =>
         {
@@ -1001,18 +1023,34 @@ app.post( '/mark-in', requireLogin, ( req, res ) =>
     doMarkIn();
 } );
 
-app.post( '/mark-out', requireLogin, ( req, res ) =>
+app.post( '/mark-out', requireLogin, async ( req, res ) =>
 {
     const { latitude, longitude, selfie } = req.body;
     const user = req.session.user;
     const now = getMoment();
     const date = getEffectiveDate( req );
     const time = now.format( 'HH:mm:ss' );
+
+    // Save selfie first (async)
+    let selfiePath;
+    try
+    {
+        const base64Data = ( selfie || '' ).replace( /^data:image\/\w+;base64,/, "" );
+        const buffer = Buffer.from( base64Data, 'base64' );
+        const filename = `${ user.name }_${ date }_${ time.replace( /:/g, '-' ) }_out.jpg`;
+        const relativePath = `selfies/${ user.name }/${ filename }`;
+        selfiePath = await saveFile( buffer, relativePath );
+    }
+    catch ( saveErr )
+    {
+        console.error( 'Error saving selfie:', saveErr );
+        const acceptsJson = req.headers && req.headers.accept && req.headers.accept.indexOf( 'application/json' ) !== -1;
+        if ( acceptsJson || req.xhr ) return res.status( 500 ).json( { success: false, message: 'Could not save selfie. Please try again.' } );
+        return res.redirect( '/dashboard' );
+    }
+
     function doMarkOut ()
     {
-        const selfiePath = path.join( selfiesDir, user.name, `${ user.name }_${ date }_${ time.replace( /:/g, '-' ) }_out.jpg` );
-        const base64Data = ( selfie || '' ).replace( /^data:image\/jpeg;base64,/, "" );
-        fs.writeFile( selfiePath, base64Data, 'base64', ( err ) => { if ( err ) console.error( err ); } );
         // Defensive: ensure there's an in_time and no out_time yet
         db.get( `SELECT in_time, out_time FROM attendance_${ user.name } WHERE date = ?`, [ date ], ( selErr, row ) =>
         {
@@ -1693,13 +1731,10 @@ app.post( '/admin/settings/logo', requireOwner, async ( req, res ) =>
             } );
         }
 
-        // Save image (already compressed client-side via canvas)
+        // Save logo using storage abstraction (local or R2)
         const filename = 'company-logo.png';
-        const filepath = path.join( logosDir, filename );
-
-        fs.writeFileSync( filepath, buffer );
-
-        const logoPath = `/logos/${ filename }`;
+        const relativePath = `logos/${ filename }`;
+        const logoPath = await saveFile( buffer, relativePath );
 
         // Update database
         await updateSetting( 'company_logo', logoPath );
