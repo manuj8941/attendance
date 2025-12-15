@@ -2037,22 +2037,11 @@ app.post( '/admin/users/add', requireAdmin, async ( req, res ) =>
         // Create attendance table for the user unless owner
         if ( userRole !== 'owner' )
         {
-            await new Promise( ( resolve, reject ) =>
-            {
-                db.run( `CREATE TABLE IF NOT EXISTS attendance_${ username } (
-                    date TEXT PRIMARY KEY,
-                    in_time TEXT, in_latitude REAL, in_longitude REAL, in_selfie_path TEXT,
-                    out_time TEXT, out_latitude REAL, out_longitude REAL, out_selfie_path TEXT
-                )`, ( tableErr ) =>
-                {
-                    if ( tableErr )
-                    {
-                        console.error( 'Error creating attendance table for', username, tableErr.message );
-                        return reject( tableErr );
-                    }
-                    resolve();
-                } );
-            } );
+            await db.run( `CREATE TABLE IF NOT EXISTS attendance_${ username } (
+                date TEXT PRIMARY KEY,
+                in_time TEXT, in_latitude REAL, in_longitude REAL, in_selfie_path TEXT,
+                out_time TEXT, out_latitude REAL, out_longitude REAL, out_selfie_path TEXT
+            )` );
         }
 
         // Ensure selfie directory exists
@@ -2066,7 +2055,7 @@ app.post( '/admin/users/add', requireAdmin, async ( req, res ) =>
         }
 
         console.log( `Admin ${ req.session.user.name } added user ${ username } with role ${ userRole }` );
-        res.json( { success: true, message: 'Team member added! They can now sign in. 🎉' } );
+        res.json( { success: true, message: 'The team member has been added and can now log in. 🎉' } );
     } catch ( e )
     {
         return res.status( 500 ).json( { success: false, message: e.message || 'Error creating user.' } );

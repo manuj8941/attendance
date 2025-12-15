@@ -261,10 +261,11 @@
                             headers: { 'Content-Type': 'application/json' },
                             body: JSON.stringify( { name, password, role, join_date } )
                         } );
+
                         const result = await res.json();
                         if ( res.ok && result.success )
                         {
-                            showAppModal( 'User created successfully.', 'success' );
+                            showAppModal( result.message || 'User created successfully.', 'success' );
                             form.reset();
                             populateUserDropdown();
                         } else
@@ -273,7 +274,7 @@
                         }
                     } catch ( err )
                     {
-                        console.error( err );
+                        console.error( 'Error adding user:', err );
                         showAppModal( 'An error occurred while creating the user. Please try again.', 'error' );
                     }
                 } );
