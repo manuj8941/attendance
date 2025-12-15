@@ -1,7 +1,7 @@
 // Seed data for initial database setup
 // Configure via environment variables for deployment
 
-require( 'dotenv' ).config();
+require( 'dotenv' ).config( { quiet: true } );
 
 // Parse seed users from environment variable
 // Format: SEED_USERS=name:password:role:join_date,name:password:role:join_date,...

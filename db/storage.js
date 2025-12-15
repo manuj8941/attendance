@@ -3,7 +3,8 @@
 
 const fs = require( 'fs' );
 const path = require( 'path' );
-const { S3Client, PutObjectCommand, GetObjectCommand } = require( '@aws-sdk/client-s3' );
+const { S3Client, PutObjectCommand, GetObjectCommand, DeleteObjectCommand } = require( '@aws-sdk/client-s3' );
+const { Readable } = require( 'stream' );
 
 // Determine if we're using cloud storage
 const useCloudStorage = !!process.env.R2_ACCOUNT_ID && !!process.env.R2_ACCESS_KEY_ID;
@@ -48,8 +49,8 @@ async function saveFile ( buffer, filePath )
 
         await r2Client.send( command );
 
-        // Return public URL
-        return `${ process.env.R2_PUBLIC_URL }/${ filePath }`;
+        // Return proxy path (not direct R2 URL - keeps bucket private)
+        return `/r2-proxy/${ filePath }`;
     }
     else
     {
@@ -84,8 +85,14 @@ async function deleteFile ( filePath )
             ? filePath.replace( process.env.R2_PUBLIC_URL + '/', '' )
             : filePath;
 
-        // Delete from R2 (implementation optional for now)
-        console.log( `Would delete from R2: ${ key }` );
+        // Delete from R2
+        const command = new DeleteObjectCommand( {
+            Bucket: process.env.R2_BUCKET_NAME,
+            Key: key
+        } );
+
+        await r2Client.send( command );
+        console.log( `🗑️  Deleted from R2: ${ key }` );
     }
     else
     {
@@ -99,6 +106,39 @@ async function deleteFile ( filePath )
             fs.unlinkSync( fullPath );
         }
     }
+}
+
+/**
+ * Get file from R2 (for proxy route)
+ * @param {string} filePath - Relative path (e.g., 'selfies/manuj/image.jpg')
+ * @returns {Promise<{body: Buffer, contentType: string}>}
+ */
+async function getFileFromR2 ( filePath )
+{
+    if ( !useCloudStorage )
+    {
+        throw new Error( 'R2 storage not configured' );
+    }
+
+    const command = new GetObjectCommand( {
+        Bucket: process.env.R2_BUCKET_NAME,
+        Key: filePath
+    } );
+
+    const response = await r2Client.send( command );
+
+    // Convert stream to buffer
+    const chunks = [];
+    for await ( const chunk of response.Body )
+    {
+        chunks.push( chunk );
+    }
+    const buffer = Buffer.concat( chunks );
+
+    return {
+        body: buffer,
+        contentType: response.ContentType || getContentType( filePath )
+    };
 }
 
 /**
@@ -120,5 +160,6 @@ function getContentType ( filePath )
 module.exports = {
     saveFile,
     deleteFile,
+    getFileFromR2,
     useCloudStorage
 };

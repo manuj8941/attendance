@@ -1,4 +1,4 @@
-require( 'dotenv' ).config();
+require( 'dotenv' ).config( { quiet: true } );
 const express = require( 'express' );
 const path = require( 'path' );
 const session = require( 'express-session' );
@@ -7,7 +7,7 @@ const moment = require( 'moment-timezone' );
 const { db, users, initializeDatabase } = require( './db/database' );
 const { getSetting, updateSetting, getSettings, initTimezone, updateTimezone } = require( './db/settings' );
 const { getMoment, getTimezone } = require( './db/timezone' );
-const { saveFile, deleteFile, useCloudStorage } = require( './db/storage' );
+const { saveFile, deleteFile, useCloudStorage, getFileFromR2 } = require( './db/storage' );
 const {
     normalizeUsername,
     capitalizeUsername,
@@ -155,10 +155,12 @@ function getEffectiveDate ( req )
 
 // --- DATABASE INITIALIZATION ---
 // Initialize database (runs migrations, seeds users, loads settings)
-initializeDatabase( app, accrueLeavesForUserOnStartup );
-
-// Initialize timezone cache
-initTimezone();
+( async () =>
+{
+    await initializeDatabase( app, accrueLeavesForUserOnStartup );
+    // Initialize timezone cache after tables are created
+    initTimezone();
+} )();
 
 // --- LEAVE ACCRUAL LOGIC (ON STARTUP) ---
 async function accrueLeavesForUserOnStartup ( employee )
@@ -604,6 +606,87 @@ app.get( '/dashboard', requireLogin, ( req, res ) =>
         return res.redirect( '/team' );
     }
     return res.sendFile( path.join( __dirname, 'dashboard.html' ) );
+} );
+
+// R2 Proxy Routes - Serves files from private R2 bucket with authentication
+// Route for 2-segment paths (logos): /r2-proxy/logos/file.png
+app.get( '/r2-proxy/:folder/:filename', requireLogin, async ( req, res ) =>
+{
+    try
+    {
+        const { folder, filename } = req.params;
+        const filePath = `${ folder }/${ filename }`; // e.g., "logos/company-logo.png"
+
+        // Validate file path to prevent directory traversal
+        if ( filePath.includes( '..' ) )
+        {
+            return res.status( 400 ).send( 'Invalid file path' );
+        }
+
+        if ( useCloudStorage )
+        {
+            // Fetch from R2
+            const { body, contentType } = await getFileFromR2( filePath );
+            res.setHeader( 'Content-Type', contentType );
+            res.setHeader( 'Cache-Control', 'private, max-age=3600' ); // Cache for 1 hour
+            res.send( body );
+        }
+        else
+        {
+            // Serve from local filesystem
+            const fullPath = path.join( __dirname, filePath );
+            if ( !fs.existsSync( fullPath ) )
+            {
+                return res.status( 404 ).send( 'File not found' );
+            }
+            res.sendFile( fullPath );
+        }
+    }
+    catch ( error )
+    {
+        console.error( 'Error serving file from R2 proxy (2-segment):', error );
+        res.status( 500 ).send( 'Error loading file' );
+    }
+} );
+
+// Route for 3-segment paths (selfies): /r2-proxy/selfies/user/file.jpg
+app.get( '/r2-proxy/:folder/:subfolder/:filename', requireLogin, async ( req, res ) =>
+{
+    try
+    {
+        const { folder, subfolder, filename } = req.params;
+        const filePath = `${ folder }/${ subfolder }/${ filename }`; // e.g., "selfies/manuj/file.jpg"
+
+        // Validate file path to prevent directory traversal
+        if ( filePath.includes( '..' ) )
+        {
+            return res.status( 400 ).send( 'Invalid file path' );
+        }
+
+        if ( useCloudStorage )
+        {
+            // Fetch from R2
+            const { body, contentType } = await getFileFromR2( filePath );
+            res.setHeader( 'Content-Type', contentType );
+            res.setHeader( 'Cache-Control', 'private, max-age=3600' ); // Cache for 1 hour
+            res.send( body );
+        }
+        else
+        {
+            // Serve from local filesystem
+            const fullPath = path.join( __dirname, filePath );
+            if ( !fs.existsSync( fullPath ) )
+            {
+                return res.status( 404 ).send( 'File not found' );
+            }
+            res.sendFile( fullPath );
+        }
+    }
+    catch ( error )
+    {
+        console.error( 'Error serving file from R2 proxy:', error );
+        res.status( 500 ).send( 'Error loading file' );
+    }
 } );
 
 // Owner-only App Settings UI
@@ -1591,12 +1674,11 @@ app.post( '/admin/settings/app/holidays/add', requireOwner, ( req, res ) =>
 
     if ( date )
     {
-        // full date provided (YYYY-MM-DD)
+        // full date provided (YYYY-MM-DD) - non-recurring, one-time holiday
         if ( !moment( date, 'YYYY-MM-DD', true ).isValid() ) return res.status( 400 ).json( { success: false, message: 'date must be YYYY-MM-DD.' } );
         insertDate = date;
         checkDate = moment( date, 'YYYY-MM-DD' );
-        // also populate month_day for convenience
-        insertMonthDay = checkDate.format( 'MM-DD' );
+        // month_day stays NULL for non-recurring holidays
     } else if ( month_day )
     {
         if ( !/^[0-1][0-9]-[0-3][0-9]$/.test( month_day ) ) return res.status( 400 ).json( { success: false, message: 'month_day must be MM-DD.' } );
@@ -1732,9 +1814,24 @@ app.post( '/admin/settings/logo', requireOwner, async ( req, res ) =>
         }
 
         // Save logo using storage abstraction (local or R2)
-        const filename = 'company-logo.png';
+        // Use timestamp to bust browser cache when logo changes
+        const timestamp = Date.now();
+        const filename = `company-logo-${ timestamp }.png`;
         const relativePath = `logos/${ filename }`;
         const logoPath = await saveFile( buffer, relativePath );
+
+        // Delete old logo if exists
+        const oldLogoPath = await getSetting( 'company_logo' );
+        if ( oldLogoPath && oldLogoPath.includes( '/logos/' ) )
+        {
+            try
+            {
+                await deleteFile( oldLogoPath.replace( '/r2-proxy/', '' ) );
+            } catch ( e )
+            {
+                console.log( 'Could not delete old logo (may not exist):', e.message );
+            }
+        }
 
         // Update database
         await updateSetting( 'company_logo', logoPath );
@@ -1765,13 +1862,16 @@ app.post( '/admin/settings/logo/remove', requireOwner, async ( req, res ) =>
             return res.json( { success: true, message: 'No logo to remove.' } );
         }
 
-        // Delete file if exists
-        const logoPath = logoValue.replace( '/logos/', '' );
-        const filepath = path.join( logosDir, logoPath );
-
-        if ( fs.existsSync( filepath ) )
+        // Delete file using storage abstraction (handles both local and R2)
+        if ( logoValue.includes( '/logos/' ) )
         {
-            fs.unlinkSync( filepath );
+            try
+            {
+                await deleteFile( logoValue.replace( '/r2-proxy/', '' ) );
+            } catch ( e )
+            {
+                console.log( 'Could not delete logo file (may not exist):', e.message );
+            }
         }
 
         // Clear database

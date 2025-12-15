@@ -25,47 +25,62 @@ if ( useTurso )
         run ( sql, params, callback )
         {
             const paramsArray = Array.isArray( params ) ? params : [];
-            tursoClient.execute( { sql, args: paramsArray } )
+            const promise = tursoClient.execute( { sql, args: paramsArray } )
                 .then( result =>
                 {
                     if ( callback ) callback.call( { lastID: result.lastInsertRowid, changes: result.rowsAffected }, null );
+                    return result;
                 } )
                 .catch( err =>
                 {
                     if ( callback ) callback.call( {}, err );
                     else console.error( 'Turso run error:', err );
+                    throw err;
                 } );
+
+            // Return promise if no callback (for async/await)
+            return callback ? undefined : promise;
         },
 
         get ( sql, params, callback )
         {
             const paramsArray = Array.isArray( params ) ? params : [];
-            tursoClient.execute( { sql, args: paramsArray } )
+            const promise = tursoClient.execute( { sql, args: paramsArray } )
                 .then( result =>
                 {
                     const row = result.rows[ 0 ] || null;
                     if ( callback ) callback( null, row );
+                    return row;
                 } )
                 .catch( err =>
                 {
                     if ( callback ) callback( err, null );
                     else console.error( 'Turso get error:', err );
+                    throw err;
                 } );
+
+            // Return promise if no callback (for async/await)
+            return callback ? undefined : promise;
         },
 
         all ( sql, params, callback )
         {
             const paramsArray = Array.isArray( params ) ? params : [];
-            tursoClient.execute( { sql, args: paramsArray } )
+            const promise = tursoClient.execute( { sql, args: paramsArray } )
                 .then( result =>
                 {
                     if ( callback ) callback( null, result.rows );
+                    return result.rows;
                 } )
                 .catch( err =>
                 {
                     if ( callback ) callback( err, [] );
                     else console.error( 'Turso all error:', err );
+                    throw err;
                 } );
+
+            // Return promise if no callback (for async/await)
+            return callback ? undefined : promise;
         },
 
         serialize ( callback )
