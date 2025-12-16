@@ -5,6 +5,7 @@ const session = require( 'express-session' );
 const fs = require( 'fs' );
 const moment = require( 'moment-timezone' );
 const { db, users, initializeDatabase } = require( './db/database' );
+const { useTurso } = require( './db/connection' );
 const { getSetting, updateSetting, getSettings, initTimezone, updateTimezone } = require( './db/settings' );
 const { getMoment, getTimezone } = require( './db/timezone' );
 const { saveFile, deleteFile, useCloudStorage, getFileFromR2 } = require( './db/storage' );
@@ -654,13 +655,13 @@ app.get( '/r2-proxy/:folder/:filename', requireLogin, async ( req, res ) =>
     try
     {
         const { folder, filename } = req.params;
-        
+
         // Redirect logos to public route
         if ( folder === 'logos' )
         {
             return res.redirect( `/r2-proxy/logos/${ filename }` );
         }
-        
+
         const filePath = `${ folder }/${ filename }`; // e.g., "profile-pictures/user.jpg"
 
         // Validate file path to prevent directory traversal
@@ -2012,32 +2013,119 @@ app.post( '/admin/settings/company-name/reset', requireOwner, async ( req, res )
 } );
 
 // Database backup download (owner-only)
-app.get( '/admin/backup/download', requireOwner, ( req, res ) =>
+app.get( '/admin/backup/download', requireOwner, async ( req, res ) =>
 {
     try
     {
-        const dbPath = path.join( __dirname, 'attendance.db' );
-
-        // Check if database file exists
-        if ( !fs.existsSync( dbPath ) )
+        if ( useTurso )
         {
-            return res.status( 404 ).json( { success: false, message: 'Database file not found.' } );
-        }
+            // For Turso, export the cloud database to a local SQLite file
+            const sqlite3 = require( 'sqlite3' ).verbose();
+            const backupPath = path.join( __dirname, `attendance-backup-${ Date.now() }.db` );
+            const backupDb = new sqlite3.Database( backupPath );
 
-        console.log( `${ req.session.user.name } downloaded database backup` );
+            console.log( `Creating Turso backup for ${ req.session.user.name }...` );
 
-        // Send file for download
-        res.download( dbPath, 'attendance-backup.db', ( err ) =>
-        {
-            if ( err )
+            // Get all table names
+            const tables = await db.all( "SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%'" );
+
+            // Wrap backup in promise
+            await new Promise( async ( resolve, reject ) =>
             {
-                console.error( 'Error downloading backup:', err );
-                if ( !res.headersSent )
+                backupDb.serialize( async () =>
                 {
-                    res.status( 500 ).json( { success: false, message: 'Failed to download backup.' } );
+                    try
+                    {
+                        for ( const table of tables )
+                        {
+                            const tableName = table.name;
+
+                            // Get table schema
+                            const schemaResult = await db.all( `SELECT sql FROM sqlite_master WHERE type='table' AND name=?`, [ tableName ] );
+                            if ( schemaResult.length > 0 && schemaResult[ 0 ].sql )
+                            {
+                                // Create table in backup
+                                backupDb.run( schemaResult[ 0 ].sql );
+
+                                // Copy all data
+                                const rows = await db.all( `SELECT * FROM ${ tableName }` );
+                                if ( rows.length > 0 )
+                                {
+                                    // Get column names from first row
+                                    const columns = Object.keys( rows[ 0 ] );
+                                    const placeholders = columns.map( () => '?' ).join( ', ' );
+                                    const insertSql = `INSERT INTO ${ tableName } (${ columns.join( ', ' ) }) VALUES (${ placeholders })`;
+
+                                    const stmt = backupDb.prepare( insertSql );
+                                    for ( const row of rows )
+                                    {
+                                        const values = columns.map( col => row[ col ] );
+                                        stmt.run( values );
+                                    }
+                                    stmt.finalize();
+                                }
+                            }
+                        }
+
+                        backupDb.close( ( err ) =>
+                        {
+                            if ( err ) reject( err );
+                            else resolve();
+                        } );
+                    } catch ( err )
+                    {
+                        reject( err );
+                    }
+                } );
+            } );
+
+            console.log( `${ req.session.user.name } downloaded Turso database backup` );
+
+            // Send file for download
+            res.download( backupPath, 'attendance-backup.db', ( err ) =>
+            {
+                // Clean up temp file after download
+                if ( fs.existsSync( backupPath ) )
+                {
+                    fs.unlinkSync( backupPath );
                 }
+
+                if ( err )
+                {
+                    console.error( 'Error downloading backup:', err );
+                    if ( !res.headersSent )
+                    {
+                        res.status( 500 ).json( { success: false, message: 'Failed to download backup.' } );
+                    }
+                }
+            } );
+        }
+        else
+        {
+            // For local SQLite, download the file directly
+            const dbPath = path.join( __dirname, 'attendance.db' );
+
+            // Check if database file exists
+            if ( !fs.existsSync( dbPath ) )
+            {
+                return res.status( 404 ).json( { success: false, message: 'Database file not found.' } );
             }
-        } );
+
+            console.log( `${ req.session.user.name } downloaded database backup` );
+
+            // Send file for download
+            res.download( dbPath, 'attendance-backup.db', ( err ) =>
+            {
+                if ( err )
+                {
+                    console.error( 'Error downloading backup:', err );
+                    if ( !res.headersSent )
+                    {
+                        res.status( 500 ).json( { success: false, message: 'Failed to download backup.' } );
+                    }
+                }
+            } );
+        }
     } catch ( err )
     {
         console.error( 'Backup download error:', err );
