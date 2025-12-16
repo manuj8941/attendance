@@ -308,7 +308,7 @@ function initBottomNav ( currentPage, userRole )
 
 // --- BRANDING APPLICATION ---
 // Apply company branding (logo, color, name) to all pages
-( async function applyBranding ()
+async function applyBranding ()
 {
   try
   {
@@ -341,20 +341,92 @@ function initBottomNav ( currentPage, userRole )
       const container = document.querySelector( '.container' );
       if ( container )
       {
-        // Create logo element
-        const logoDiv = document.createElement( 'div' );
-        logoDiv.style.textAlign = 'center';
-        logoDiv.style.marginBottom = '16px';
-        logoDiv.innerHTML = `<img src="${ branding.logo }" alt="${ branding.companyName }" style="max-height:60px;max-width:200px;">`;
+        // Check if logo already exists to prevent duplicates
+        let logoDiv = container.querySelector( '.branding-logo' );
+        if ( !logoDiv )
+        {
+          // Create logo element
+          logoDiv = document.createElement( 'div' );
+          logoDiv.className = 'branding-logo';
+          logoDiv.style.textAlign = 'center';
+          logoDiv.style.marginBottom = '16px';
 
-        // Insert at the top of container
-        container.insertBefore( logoDiv, container.firstChild );
+          const img = document.createElement( 'img' );
+          img.src = branding.logo;
+          img.alt = branding.companyName || 'Company Logo';
+          img.style.maxHeight = '60px';
+          img.style.maxWidth = '200px';
+
+          logoDiv.appendChild( img );
+
+          // Insert at the top of container
+          container.insertBefore( logoDiv, container.firstChild );
+        }
+        else
+        {
+          // Update existing logo if changed
+          const img = logoDiv.querySelector( 'img' );
+          if ( img && img.src !== branding.logo )
+          {
+            img.src = branding.logo;
+            img.alt = branding.companyName;
+          }
+        }
       }
+    }
+
+    // Add profile picture to header (all logged-in pages)
+    try
+    {
+      const userRes = await fetch( '/user/me' );
+      if ( userRes.ok )
+      {
+        const user = await userRes.json();
+        const profileName = document.getElementById( 'profile-name' );
+        const profileRole = document.getElementById( 'profile-role' );
+
+        if ( profileName && user )
+        {
+          // Find or create avatar container (look for .nav-avatar in parent, or #header-avatar)
+          let avatarImg = profileName.parentElement.querySelector( '.nav-avatar' ) || document.getElementById( 'header-avatar' );
+          if ( !avatarImg )
+          {
+            avatarImg = document.createElement( 'img' );
+            avatarImg.className = 'nav-avatar';
+            avatarImg.alt = 'Profile';
+            profileName.parentElement.insertBefore( avatarImg, profileName );
+          }
+          // Set avatar source and alt
+          avatarImg.src = user.profile_picture || '/default-avatar.svg';
+          avatarImg.alt = user.displayName || user.name || 'Profile';
+          avatarImg.style.display = 'inline-block';
+        }
+      }
+    }
+    catch ( e )
+    {
+      // User not logged in - skip avatar (e.g., on login page)
     }
   }
   catch ( e )
   {
     // Silently fail - branding is optional
-    console.log( 'Branding not available' );
+    console.log( 'Branding not available', e );
   }
-} )();
+}
+
+// Call on page load - ensure DOM is ready
+// Since ui.js is loaded at the end of body, DOM elements should be available
+// Call immediately if interactive/complete, otherwise wait for DOMContentLoaded
+if ( document.readyState === 'loading' )
+{
+  document.addEventListener( 'DOMContentLoaded', applyBranding );
+}
+else
+{
+  // Call immediately, and also ensure it runs after a short delay in case of race conditions
+  applyBranding();
+}
+
+// Make it available globally for refresh after upload
+window.applyBranding = applyBranding;

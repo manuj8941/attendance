@@ -35,15 +35,20 @@ async function initializeDatabaseAsync ( app, accrueLeavesCallback )
         const allCoreTablesExist = existingTableNames.length === 5; // All 5 core tables
 
         // Users table
-        await db.run( 'CREATE TABLE IF NOT EXISTS users (name TEXT PRIMARY KEY, password TEXT, role TEXT, leave_balance REAL DEFAULT 0, leave_balance_last_updated TEXT, join_date TEXT DEFAULT \'2025-01-01\', current_session_id TEXT DEFAULT \'\')' );
+        await db.run( 'CREATE TABLE IF NOT EXISTS users (name TEXT PRIMARY KEY, password TEXT, role TEXT, leave_balance REAL DEFAULT 0, leave_balance_last_updated TEXT, join_date TEXT DEFAULT \'2025-01-01\', current_session_id TEXT DEFAULT \'\', profile_picture TEXT)' );
 
-        // Ensure current_session_id column exists (migration for existing tables)
+        // Ensure current_session_id and profile_picture columns exist (migration for existing tables)
         const userColumns = await db.all( "PRAGMA table_info(users)" );
         const userColumnNames = userColumns.map( c => c.name );
         if ( !userColumnNames.includes( 'current_session_id' ) )
         {
             await db.run( "ALTER TABLE users ADD COLUMN current_session_id TEXT DEFAULT ''" );
             console.log( '✅ Added current_session_id column to users table' );
+        }
+        if ( !userColumnNames.includes( 'profile_picture' ) )
+        {
+            await db.run( "ALTER TABLE users ADD COLUMN profile_picture TEXT" );
+            console.log( '✅ Added profile_picture column to users table' );
         }
 
         // Insert seed users

@@ -663,3 +663,36 @@ body
     height: calc(60px + env(safe-area-inset-bottom, 0px));
     flex-shrink: 0;
 }
+
+/* --- Profile Picture Avatars --- */
+.nav-avatar
+{
+    width: 32px;
+    height: 32px;
+    border-radius: 50%;
+    object-fit: cover;
+    margin-right: 8px;
+    vertical-align: middle;
+    border: 2px solid var(--border);
+}
+
+.profile-avatar-large
+{
+    width: 150px;
+    height: 150px;
+    border-radius: 50%;
+    object-fit: cover;
+    border: 3px solid var(--accent);
+    box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+}
+
+.user-avatar-small
+{
+    width: 28px;
+    height: 28px;
+    border-radius: 50%;
+    object-fit: cover;
+    margin-right: 8px;
+    vertical-align: middle;
+    border: 1px solid var(--border);
+}

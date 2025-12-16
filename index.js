@@ -28,14 +28,12 @@ const {
 const app = express();
 const port = process.env.PORT || 3000;
 
-// --- DIRECTORY AND USER SETUP ---
 const selfiesDir = './selfies';
+const logosDir = './logos';
 if ( !fs.existsSync( selfiesDir ) )
 {
     fs.mkdirSync( selfiesDir );
 }
-
-const logosDir = './logos';
 if ( !fs.existsSync( logosDir ) )
 {
     fs.mkdirSync( logosDir );
@@ -577,6 +575,7 @@ app.get( '/user/me', requireLogin, async ( req, res ) =>
             role: user.role,
             displayName: req.session.user.displayName || capitalizeUsername( user.name ),
             join_date: user.join_date,
+            profile_picture: user.profile_picture || null,
             effectiveDate: effectiveDate,
             currentDateTime: effectiveDateTime.format(),
             timezone: timezone
@@ -609,13 +608,60 @@ app.get( '/dashboard', requireLogin, ( req, res ) =>
 } );
 
 // R2 Proxy Routes - Serves files from private R2 bucket with authentication
-// Route for 2-segment paths (logos): /r2-proxy/logos/file.png
+// Public route for logos (no authentication required - needed for login page branding)
+app.get( '/r2-proxy/logos/:filename', async ( req, res ) =>
+{
+    try
+    {
+        const { filename } = req.params;
+        const filePath = `logos/${ filename }`;
+
+        // Validate file path to prevent directory traversal
+        if ( filename.includes( '..' ) )
+        {
+            return res.status( 400 ).send( 'Invalid file path' );
+        }
+
+        if ( useCloudStorage )
+        {
+            // Fetch from R2
+            const { body, contentType } = await getFileFromR2( filePath );
+            res.setHeader( 'Content-Type', contentType );
+            res.setHeader( 'Cache-Control', 'public, max-age=3600' ); // Cache for 1 hour
+            res.send( body );
+        }
+        else
+        {
+            // Serve from local filesystem
+            const fullPath = path.join( __dirname, filePath );
+            if ( !fs.existsSync( fullPath ) )
+            {
+                return res.status( 404 ).send( 'File not found' );
+            }
+            res.sendFile( fullPath );
+        }
+    }
+    catch ( error )
+    {
+        console.error( 'Error serving logo from R2 proxy:', error );
+        res.status( 500 ).send( 'Error loading file' );
+    }
+} );
+
+// Route for 2-segment paths (other folders - requires authentication): /r2-proxy/folder/file.png
 app.get( '/r2-proxy/:folder/:filename', requireLogin, async ( req, res ) =>
 {
     try
     {
         const { folder, filename } = req.params;
-        const filePath = `${ folder }/${ filename }`; // e.g., "logos/company-logo.png"
+        
+        // Redirect logos to public route
+        if ( folder === 'logos' )
+        {
+            return res.redirect( `/r2-proxy/logos/${ filename }` );
+        }
+        
+        const filePath = `${ folder }/${ filename }`; // e.g., "profile-pictures/user.jpg"
 
         // Validate file path to prevent directory traversal
         if ( filePath.includes( '..' ) )
@@ -2287,6 +2333,107 @@ app.post( '/user/change-password', requireLogin, async ( req, res ) =>
     }
 } );
 
+// Upload profile picture
+app.post( '/user/profile-picture', requireLogin, async ( req, res ) =>
+{
+    const { picture } = req.body;
+
+    if ( !picture || !picture.startsWith( 'data:image' ) )
+    {
+        return res.status( 400 ).json( { success: false, message: 'Please provide a valid image.' } );
+    }
+
+    try
+    {
+        // Extract base64 data
+        const matches = picture.match( /^data:image\/(\w+);base64,(.+)$/ );
+        if ( !matches )
+        {
+            return res.status( 400 ).json( { success: false, message: 'Invalid image format.' } );
+        }
+
+        const base64Data = matches[ 2 ];
+        const buffer = Buffer.from( base64Data, 'base64' );
+
+        // Check file size (100KB limit - already compressed to 100x100px <50KB client-side)
+        const sizeKB = buffer.length / 1024;
+        if ( sizeKB > 100 )
+        {
+            return res.status( 400 ).json( {
+                success: false,
+                message: `Image is too large (${ Math.round( sizeKB ) }KB). Please ensure it's compressed properly.`
+            } );
+        }
+
+        const username = req.session.user.name;
+        const user = await getUserByName( username );
+        if ( !user ) return res.status( 404 ).json( { success: false, message: 'User not found.' } );
+
+        // Delete old profile picture if exists
+        if ( user.profile_picture )
+        {
+            try
+            {
+                // Extract the key from the proxy URL (e.g., "/r2-proxy/profile-pictures/manuj.jpg" -> "profile-pictures/manuj.jpg")
+                const oldKey = user.profile_picture.replace( '/r2-proxy/', '' );
+                await deleteFile( oldKey );
+            } catch ( err )
+            {
+                console.error( 'Error deleting old profile picture:', err.message );
+            }
+        }
+
+        // Save new picture to R2
+        const filename = `${ username }.jpg`;
+        const filePath = `profile-pictures/${ filename }`;
+        const publicUrl = await saveFile( buffer, filePath, 'image/jpeg' );
+
+        // Update database
+        await db.run( 'UPDATE users SET profile_picture = ? WHERE name = ?', [ publicUrl, username ] );
+
+        res.json( { success: true, message: 'Profile picture updated! 📸', picture_url: publicUrl } );
+    } catch ( err )
+    {
+        console.error( 'Error uploading profile picture:', err );
+        res.status( 500 ).json( { success: false, message: 'Error uploading picture. Please try again.' } );
+    }
+} );
+
+// Remove profile picture
+app.delete( '/user/profile-picture', requireLogin, async ( req, res ) =>
+{
+    try
+    {
+        const username = req.session.user.name;
+        const user = await getUserByName( username );
+        if ( !user ) return res.status( 404 ).json( { success: false, message: 'User not found.' } );
+
+        if ( !user.profile_picture )
+        {
+            return res.json( { success: true, message: 'No profile picture to remove.' } );
+        }
+
+        // Delete from R2
+        try
+        {
+            const key = user.profile_picture.replace( '/r2-proxy/', '' );
+            await deleteFile( key );
+        } catch ( err )
+        {
+            console.error( 'Error deleting profile picture from R2:', err.message );
+        }
+
+        // Update database
+        await db.run( 'UPDATE users SET profile_picture = NULL WHERE name = ?', [ username ] );
+
+        res.json( { success: true, message: 'Profile picture removed.' } );
+    } catch ( err )
+    {
+        console.error( 'Error removing profile picture:', err );
+        res.status( 500 ).json( { success: false, message: 'Error removing picture. Please try again.' } );
+    }
+} );
+
 // Normalize or redirect invalid dashboard subpaths to the main dashboard
 // Use app.use to match the prefix without using a path-to-regexp wildcard pattern
 app.use( '/dashboard', requireLogin, ( req, res, next ) =>
@@ -2349,11 +2496,19 @@ if ( require.main === module )
             const cert = fs.readFileSync( certPath );
             https.createServer( { key, cert }, app ).listen( PORT, '0.0.0.0', () =>
             {
-                // Get local IP address
+                // Get local IP address (prefer real network over virtual adapters)
                 const networkInterfaces = os.networkInterfaces();
-                const localIP = Object.values( networkInterfaces )
+                const allIPs = Object.values( networkInterfaces )
                     .flat()
-                    .find( iface => iface.family === 'IPv4' && !iface.internal )?.address || 'localhost';
+                    .filter( iface => iface.family === 'IPv4' && !iface.internal )
+                    .map( iface => iface.address );
+
+                // Prioritize 192.168.1.x over 192.168.56.x (VirtualBox) or 172.x.x.x (Docker)
+                const localIP = allIPs.find( ip => ip.startsWith( '192.168.1.' ) )
+                    || allIPs.find( ip => ip.startsWith( '192.168.0.' ) )
+                    || allIPs.find( ip => ip.startsWith( '10.' ) )
+                    || allIPs[ 0 ]
+                    || 'localhost';
 
                 console.log( `✅ HTTPS server running on port ${ PORT }` );
                 console.log( `📱 Access from mobile: https://${ localIP }:${ PORT }` );
@@ -2391,9 +2546,17 @@ if ( require.main === module )
         app.listen( PORT, '0.0.0.0', () =>
         {
             const networkInterfaces = os.networkInterfaces();
-            const localIP = Object.values( networkInterfaces )
+            const allIPs = Object.values( networkInterfaces )
                 .flat()
-                .find( iface => iface.family === 'IPv4' && !iface.internal )?.address || 'localhost';
+                .filter( iface => iface.family === 'IPv4' && !iface.internal )
+                .map( iface => iface.address );
+
+            // Prioritize 192.168.1.x over 192.168.56.x (VirtualBox) or 172.x.x.x (Docker)
+            const localIP = allIPs.find( ip => ip.startsWith( '192.168.1.' ) )
+                || allIPs.find( ip => ip.startsWith( '192.168.0.' ) )
+                || allIPs.find( ip => ip.startsWith( '10.' ) )
+                || allIPs[ 0 ]
+                || 'localhost';
 
             console.log( `✅ HTTP server running on port ${ PORT }` );
             console.log( `📱 Access from mobile: http://${ localIP }:${ PORT }` );

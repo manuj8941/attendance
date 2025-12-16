@@ -18,9 +18,13 @@
 
         <!-- Global app modal is injected by /ui.js -->
 
+
         <div class="container">
+            <div style="display:flex;align-items:center;gap:10px;margin-bottom:8px">
+                <img class="nav-avatar" id="header-avatar" src="/default-avatar.svg" alt="Profile" style="display:none">
+                <strong id="profile-name"></strong> (<span id="profile-role"></span>)
+            </div>
             <h1><i class="fas fa-th-large"></i> Dashboard</h1>
-            <p>Welcome, <strong id="user-name"></strong>! (<span id="user-role"></span>)</p>
             <p style="color:#666;font-size:0.9rem;margin-top:4px;">
                 <i class="fas fa-calendar-day"></i> <span id="current-datetime"></span>
             </p>
@@ -132,13 +136,17 @@
         </div>
 
         <script>
+
             window.addEventListener( 'load', async () =>
             {
                 // Fetch current user's info
                 const userRes = await fetch( '/user/me' );
                 const currentUser = await userRes.json();
-                document.getElementById( 'user-name' ).textContent = currentUser.displayName || currentUser.name;
-                document.getElementById( 'user-role' ).textContent = ( currentUser.role || '' ).replace( '_', ' ' );
+                document.getElementById( 'profile-name' ).textContent = currentUser.displayName || currentUser.name;
+                document.getElementById( 'profile-role' ).textContent = ( currentUser.role || '' ).replace( '_', ' ' );
+
+                // Branding (avatar/logo)
+                if ( window.applyBranding ) window.applyBranding();
 
                 // Get timezone from user data (server provides it)
                 const timezone = currentUser.timezone || 'Asia/Kolkata';
