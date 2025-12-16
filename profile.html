@@ -123,7 +123,9 @@
                 const profileAvatar = document.getElementById( 'profile-avatar' );
                 if ( user.profile_picture )
                 {
-                    profileAvatar.src = user.profile_picture;
+                    // Add timestamp to bust cache
+                    const cacheBuster = '?t=' + new Date().getTime();
+                    profileAvatar.src = user.profile_picture + cacheBuster;
                 }
 
                 // Format join date as DD-MMM-YYYY
@@ -238,11 +240,18 @@
                         const result = await res.json();
                         if ( res.ok && result.success )
                         {
-                            document.getElementById( 'profile-avatar' ).src = result.picture_url;
-                            if ( window.showAppModal ) showAppModal( result.message || 'Profile picture updated!', 'success' );
-
-                            // Trigger header refresh
-                            if ( window.applyBranding ) window.applyBranding();
+                            if ( window.showAppModal )
+                            {
+                                // Show modal and reload after user clicks OK
+                                showAppModal( result.message || 'Profile picture updated!', 'success', () =>
+                                {
+                                    window.location.reload();
+                                } );
+                            }
+                            else
+                            {
+                                window.location.reload();
+                            }
                         }
                         else
                         {

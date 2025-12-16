@@ -410,7 +410,10 @@ async function applyBranding ()
             profileName.parentElement.insertBefore( avatarImg, profileName );
           }
           // Set avatar source and alt
-          avatarImg.src = user.profile_picture || '/default-avatar.svg';
+          const profilePicUrl = user.profile_picture || '/default-avatar.svg';
+          // Add cache buster for profile pictures to force refresh
+          const cacheBuster = user.profile_picture ? '?t=' + new Date().getTime() : '';
+          avatarImg.src = profilePicUrl + cacheBuster;
           avatarImg.alt = user.displayName || user.name || 'Profile';
           avatarImg.style.display = 'inline-block';
         }

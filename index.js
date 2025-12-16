@@ -684,6 +684,7 @@ app.get( '/r2-proxy/:folder/:filename', requireLogin, async ( req, res ) =>
             const fullPath = path.join( __dirname, filePath );
             if ( !fs.existsSync( fullPath ) )
             {
+                console.error( `File not found at: ${ fullPath }` );
                 return res.status( 404 ).send( 'File not found' );
             }
             res.sendFile( fullPath );

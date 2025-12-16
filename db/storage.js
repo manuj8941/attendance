@@ -66,8 +66,8 @@ async function saveFile ( buffer, filePath )
 
         fs.writeFileSync( fullPath, buffer );
 
-        // Return local path (will be served by Express static)
-        return `/${ filePath.replace( /\\/g, '/' ) }`;
+        // Return proxy path (consistent with R2 for compatibility)
+        return `/r2-proxy/${ filePath.replace( /\\/g, '/' ) }`;
     }
 }
 

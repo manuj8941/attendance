@@ -239,7 +239,7 @@ function initializeDatabaseSync ( app, accrueLeavesCallback )
         } );
         stmtUsers.finalize();
 
-        // Ensure optional column exists on `users` for single-session mapping
+        // Ensure optional columns exist on `users` for single-session mapping and profile pictures
         db.all( "PRAGMA table_info(users)", [], ( prErrU, ucols ) =>
         {
             if ( prErrU ) return;
@@ -247,6 +247,7 @@ function initializeDatabaseSync ( app, accrueLeavesCallback )
             {
                 const namesU = ( ucols || [] ).map( c => c.name );
                 if ( namesU.indexOf( 'current_session_id' ) === -1 ) db.run( "ALTER TABLE users ADD COLUMN current_session_id TEXT DEFAULT ''" );
+                if ( namesU.indexOf( 'profile_picture' ) === -1 ) db.run( "ALTER TABLE users ADD COLUMN profile_picture TEXT" );
             } catch ( e ) { /* ignore migration errors */ }
         } );
 
