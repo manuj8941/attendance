@@ -1829,6 +1829,64 @@ app.get( '/branding', async ( req, res ) =>
     }
 } );
 
+// Dynamic PWA manifest with current branding
+app.get( '/manifest.json', async ( req, res ) =>
+{
+    try
+    {
+        const settings = await getSettings( [ 'brand_color', 'company_name' ] );
+        const themeColor = settings.brand_color || '#0ea5a4';
+        const appName = settings.company_name || 'Attendance Tracker';
+
+        const manifest = {
+            name: appName,
+            short_name: appName.length > 12 ? appName.substring( 0, 12 ) : appName,
+            description: "Employee attendance tracking system with leave management",
+            start_url: "/",
+            display: "standalone",
+            display_override: [ "window-controls-overlay", "standalone" ],
+            background_color: "#ffffff",
+            theme_color: themeColor,
+            orientation: "portrait-primary",
+            scope: "/",
+            launch_handler: {
+                client_mode: "navigate-existing"
+            },
+            prefer_related_applications: false,
+            icons: [
+                {
+                    src: "/icons/icon-192.png",
+                    sizes: "192x192",
+                    type: "image/png",
+                    purpose: "any"
+                },
+                {
+                    src: "/icons/icon-512.png",
+                    sizes: "512x512",
+                    type: "image/png",
+                    purpose: "any"
+                },
+                {
+                    src: "/icons/icon-512-maskable.png",
+                    sizes: "512x512",
+                    type: "image/png",
+                    purpose: "maskable"
+                }
+            ],
+            categories: [ "productivity", "business" ],
+            screenshots: []
+        };
+
+        res.setHeader( 'Content-Type', 'application/manifest+json' );
+        res.json( manifest );
+    } catch ( err )
+    {
+        console.error( 'Error generating manifest:', err );
+        // Fallback to default manifest
+        res.sendFile( path.join( __dirname, 'public', 'manifest.json' ) );
+    }
+} );
+
 // Upload company logo (owner only)
 app.post( '/admin/settings/logo', requireOwner, async ( req, res ) =>
 {

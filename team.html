@@ -27,6 +27,9 @@
                 {
                     document.documentElement.style.setProperty( '--brand-color', cached );
                     document.documentElement.style.setProperty( '--accent', cached );
+                    // Update meta theme-color
+                    const metaTheme = document.querySelector( 'meta[name="theme-color"]' );
+                    if ( metaTheme ) metaTheme.setAttribute( 'content', cached );
                 }
 
                 // Fetch and update cache (async, non-blocking)
@@ -39,6 +42,9 @@
                         {
                             document.documentElement.style.setProperty( '--brand-color', data.brandColor );
                             document.documentElement.style.setProperty( '--accent', data.brandColor );
+                            // Update meta theme-color
+                            const metaTheme = document.querySelector( 'meta[name="theme-color"]' );
+                            if ( metaTheme ) metaTheme.setAttribute( 'content', data.brandColor );
                         }
                     }
                 } ).catch( () => { } );
