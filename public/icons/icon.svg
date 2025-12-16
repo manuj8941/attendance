@@ -1,0 +1,32 @@
+<svg width="512" height="512" viewBox="0 0 512 512" xmlns="http://www.w3.org/2000/svg">
+  <!-- Background circle -->
+  <circle cx="256" cy="256" r="256" fill="#0ea5a4"/>
+  
+  <!-- Calendar icon -->
+  <rect x="120" y="140" width="272" height="280" rx="24" fill="white"/>
+  
+  <!-- Calendar header -->
+  <rect x="120" y="140" width="272" height="70" rx="24" fill="#ffffff"/>
+  <rect x="120" y="180" width="272" height="30" fill="#0d9a99"/>
+  
+  <!-- Calendar binding holes -->
+  <circle cx="180" cy="155" r="12" fill="#0d9a99"/>
+  <circle cx="256" cy="155" r="12" fill="#0d9a99"/>
+  <circle cx="332" cy="155" r="12" fill="#0d9a99"/>
+  
+  <!-- Calendar grid dots (attendance marks) -->
+  <circle cx="165" cy="250" r="14" fill="#0ea5a4"/>
+  <circle cx="220" cy="250" r="14" fill="#0ea5a4"/>
+  <circle cx="275" cy="250" r="14" fill="#0ea5a4"/>
+  <circle cx="330" cy="250" r="14" fill="#cbd5e1"/>
+  
+  <circle cx="165" cy="310" r="14" fill="#0ea5a4"/>
+  <circle cx="220" cy="310" r="14" fill="#cbd5e1"/>
+  <circle cx="275" cy="310" r="14" fill="#0ea5a4"/>
+  <circle cx="330" cy="310" r="14" fill="#0ea5a4"/>
+  
+  <circle cx="165" cy="370" r="14" fill="#cbd5e1"/>
+  <circle cx="220" cy="370" r="14" fill="#0ea5a4"/>
+  <circle cx="275" cy="370" r="14" fill="#0ea5a4"/>
+  <circle cx="330" cy="370" r="14" fill="#0ea5a4"/>
+</svg>

@@ -446,3 +446,97 @@ else
 
 // Make it available globally for refresh after upload
 window.applyBranding = applyBranding;
+
+// Page transition handler for smooth navigation
+function setupPageTransitions ()
+{
+  // Intercept navigation clicks for smooth transitions
+  document.addEventListener( 'click', ( e ) =>
+  {
+    const link = e.target.closest( 'a' );
+    if ( !link ) return;
+
+    const href = link.getAttribute( 'href' );
+    if ( !href || href.startsWith( '#' ) || href.startsWith( 'javascript:' ) || link.target === '_blank' ) return;
+
+    // Check if it's an internal navigation (including bottom nav)
+    if ( href.startsWith( '/' ) || href.includes( window.location.host ) )
+    {
+      e.preventDefault();
+
+      // Add transition-out class
+      document.body.classList.add( 'page-transitioning-out' );
+
+      // Navigate after animation
+      setTimeout( () =>
+      {
+        window.location.href = href;
+      }, 200 );
+    }
+  } );
+}
+
+// Initialize page transitions when DOM is ready
+if ( document.readyState === 'loading' )
+{
+  document.addEventListener( 'DOMContentLoaded', setupPageTransitions );
+}
+else
+{
+  setupPageTransitions();
+}
+
+// Page transition handler for smooth navigation
+function setupPageTransitions ()
+{
+  // Intercept navigation clicks for smooth transitions
+  document.addEventListener( 'click', ( e ) =>
+  {
+    const link = e.target.closest( 'a' );
+    if ( !link ) return;
+
+    const href = link.getAttribute( 'href' );
+    if ( !href || href.startsWith( '#' ) || href.startsWith( 'javascript:' ) || link.target === '_blank' ) return;
+
+    // Check if it's an internal navigation (including bottom nav)
+    if ( href.startsWith( '/' ) || href.includes( window.location.host ) )
+    {
+      e.preventDefault();
+
+      // Add transition-out class
+      document.body.classList.add( 'page-transitioning-out' );
+
+      // Navigate after animation
+      setTimeout( () =>
+      {
+        window.location.href = href;
+      }, 200 );
+    }
+  } );
+}
+
+// Initialize page transitions when DOM is ready
+if ( document.readyState === 'loading' )
+{
+  document.addEventListener( 'DOMContentLoaded', setupPageTransitions );
+}
+else
+{
+  setupPageTransitions();
+}
+// Service Worker Registration for PWA
+if ( 'serviceWorker' in navigator )
+{
+  window.addEventListener( 'load', () =>
+  {
+    navigator.serviceWorker.register( '/sw.js' )
+      .then( ( registration ) =>
+      {
+        console.log( 'ServiceWorker registered:', registration.scope );
+      } )
+      .catch( ( error ) =>
+      {
+        console.log( 'ServiceWorker registration failed:', error );
+      } );
+  } );
+}
