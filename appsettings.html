@@ -11,13 +11,46 @@
         <link rel="stylesheet" href="/airbnb.css">
         <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css">
 
+        <!-- Apply branding color immediately to prevent flash -->
+        <script>
+            ( function ()
+            {
+                // Apply cached color instantly (synchronous)
+                const cached = localStorage.getItem( 'brandColor' );
+                if ( cached )
+                {
+                    document.documentElement.style.setProperty( '--brand-color', cached );
+                    document.documentElement.style.setProperty( '--accent', cached );
+                }
 
+                // Fetch and update cache (async, non-blocking)
+                fetch( '/branding' ).then( res => res.json() ).then( data =>
+                {
+                    if ( data.brandColor )
+                    {
+                        localStorage.setItem( 'brandColor', data.brandColor );
+                        if ( data.brandColor !== cached )
+                        {
+                            document.documentElement.style.setProperty( '--brand-color', data.brandColor );
+                            document.documentElement.style.setProperty( '--accent', data.brandColor );
+                        }
+                    }
+                } ).catch( () => { } );
+            } )();
+        </script>
     </head>
 
     <body>
 
         <div class="container">
-            <h1><i class="fas fa-cog"></i> System Settings</h1>
+            <h1 style="display:flex;align-items:center;gap:10px;margin-bottom:8px">
+                <i class="fas fa-cog"></i> System Settings
+                <img class="nav-avatar" id="header-avatar" src="/default-avatar.svg" alt="Profile"
+                    style="display:none;margin-left:auto">
+                <span style="font-size:0.9rem;font-weight:normal">
+                    Welcome, <strong id="profile-name"></strong>! (<span id="profile-role"></span>)
+                </span>
+            </h1>
             <p>Manage your attendance system.</p>
 
             <div class="section">
@@ -534,6 +567,15 @@
 
                 window.addEventListener( 'load', async () =>
                 {
+                    // Fetch and display current user info
+                    const userRes = await fetch( '/user/me' );
+                    const currentUser = await userRes.json();
+                    document.getElementById( 'profile-name' ).textContent = currentUser.displayName || currentUser.name;
+                    document.getElementById( 'profile-role' ).textContent = currentUser.role.replace( '_', ' ' );
+
+                    // Apply branding (logo and avatar)
+                    if ( window.applyBranding ) window.applyBranding();
+
                     const s = await fetchSettings();
                     if ( !s ) return;
                     document.getElementById( 'desktop-enabled' ).checked = !!s.desktop_enabled;

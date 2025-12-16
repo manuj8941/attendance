@@ -11,12 +11,46 @@
         <link rel="stylesheet" href="/airbnb.css">
         <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css">
 
+        <!-- Apply branding color immediately to prevent flash -->
+        <script>
+            ( function ()
+            {
+                // Apply cached color instantly (synchronous)
+                const cached = localStorage.getItem( 'brandColor' );
+                if ( cached )
+                {
+                    document.documentElement.style.setProperty( '--brand-color', cached );
+                    document.documentElement.style.setProperty( '--accent', cached );
+                }
+
+                // Fetch and update cache (async, non-blocking)
+                fetch( '/branding' ).then( res => res.json() ).then( data =>
+                {
+                    if ( data.brandColor )
+                    {
+                        localStorage.setItem( 'brandColor', data.brandColor );
+                        if ( data.brandColor !== cached )
+                        {
+                            document.documentElement.style.setProperty( '--brand-color', data.brandColor );
+                            document.documentElement.style.setProperty( '--accent', data.brandColor );
+                        }
+                    }
+                } ).catch( () => { } );
+            } )();
+        </script>
     </head>
 
     <body>
         <div class="container">
             <div class="section">
-                <h1 style="margin-bottom:8px"><i class="fas fa-calendar-alt"></i> My Attendance Calendar</h1>
+                <h1 style="display:flex;align-items:center;gap:10px;margin-bottom:8px">
+                    <i class="fas fa-calendar-alt"></i> <span id="calendar-title">My Attendance Calendar</span>
+                    <img class="nav-avatar" id="header-avatar" src="/default-avatar.svg" alt="Profile"
+                        style="display:none;margin-left:auto">
+                    <span style="font-size:0.9rem;font-weight:normal">
+                        Welcome, <strong id="profile-name"></strong>! (<span id="profile-role"></span>)
+                    </span>
+                </h1>
 
                 <div class="calendar-controls">
                     <div style="display:flex;gap:4px;align-items:center">
@@ -338,6 +372,24 @@
                     {
                         const me = await meRes.json();
                         selUser = me.name;
+
+                        // Display user info in header
+                        document.getElementById( 'profile-name' ).textContent = me.displayName || me.name;
+                        document.getElementById( 'profile-role' ).textContent = me.role.replace( '_', ' ' );
+
+                        // Update calendar title based on role
+                        const titleElement = document.getElementById( 'calendar-title' );
+                        if ( me.role === 'owner' || me.role === 'manager' )
+                        {
+                            titleElement.textContent = "Team's Calendar";
+                        }
+                        else
+                        {
+                            titleElement.textContent = "My Calendar";
+                        }
+
+                        // Apply branding (logo and avatar)
+                        if ( window.applyBranding ) window.applyBranding();
                     }
 
                     // Setup User Selector (Manager/Owner only)

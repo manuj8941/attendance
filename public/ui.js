@@ -337,40 +337,53 @@ async function applyBranding ()
     // Add logo to header if it exists (on login and dashboard pages)
     if ( branding.logo )
     {
-      // Check if we're on login page or dashboard
+      // Check if we're on login page or main pages
       const container = document.querySelector( '.container' );
       if ( container )
       {
         // Check if logo already exists to prevent duplicates
-        let logoDiv = container.querySelector( '.branding-logo' );
-        if ( !logoDiv )
+        let logoImg = container.querySelector( '.branding-logo' );
+
+        // Find h1 to insert logo inline
+        const h1 = container.querySelector( 'h1' );
+
+        if ( h1 && !logoImg )
         {
-          // Create logo element
-          logoDiv = document.createElement( 'div' );
+          // Create inline logo for pages with h1 (dashboard, team, etc.)
+          logoImg = document.createElement( 'img' );
+          logoImg.className = 'branding-logo';
+          logoImg.src = branding.logo;
+          logoImg.alt = branding.companyName || 'Company Logo';
+          logoImg.style.maxHeight = '40px';
+          logoImg.style.maxWidth = '150px';
+          logoImg.style.marginRight = '10px';
+          logoImg.style.verticalAlign = 'middle';
+
+          // Insert logo before the icon in h1
+          h1.insertBefore( logoImg, h1.firstChild );
+        }
+        else if ( !h1 && !logoImg )
+        {
+          // For login page without h1, use centered logo
+          const logoDiv = document.createElement( 'div' );
           logoDiv.className = 'branding-logo';
           logoDiv.style.textAlign = 'center';
           logoDiv.style.marginBottom = '16px';
 
-          const img = document.createElement( 'img' );
-          img.src = branding.logo;
-          img.alt = branding.companyName || 'Company Logo';
-          img.style.maxHeight = '60px';
-          img.style.maxWidth = '200px';
+          logoImg = document.createElement( 'img' );
+          logoImg.src = branding.logo;
+          logoImg.alt = branding.companyName || 'Company Logo';
+          logoImg.style.maxHeight = '60px';
+          logoImg.style.maxWidth = '200px';
 
-          logoDiv.appendChild( img );
-
-          // Insert at the top of container
+          logoDiv.appendChild( logoImg );
           container.insertBefore( logoDiv, container.firstChild );
         }
-        else
+        else if ( logoImg && logoImg.src !== branding.logo )
         {
           // Update existing logo if changed
-          const img = logoDiv.querySelector( 'img' );
-          if ( img && img.src !== branding.logo )
-          {
-            img.src = branding.logo;
-            img.alt = branding.companyName;
-          }
+          logoImg.src = branding.logo;
+          logoImg.alt = branding.companyName;
         }
       }
     }

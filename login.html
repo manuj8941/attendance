@@ -10,6 +10,34 @@
     <link rel="stylesheet" href="/flatpickr.min.css">
     <link rel="stylesheet" href="/airbnb.css">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css">
+
+    <!-- Apply branding color immediately to prevent flash -->
+    <script>
+      ( function ()
+      {
+        // Apply cached color instantly (synchronous)
+        const cached = localStorage.getItem( 'brandColor' );
+        if ( cached )
+        {
+          document.documentElement.style.setProperty( '--brand-color', cached );
+          document.documentElement.style.setProperty( '--accent', cached );
+        }
+
+        // Fetch and update cache (async, non-blocking)
+        fetch( '/branding' ).then( res => res.json() ).then( data =>
+        {
+          if ( data.brandColor )
+          {
+            localStorage.setItem( 'brandColor', data.brandColor );
+            if ( data.brandColor !== cached )
+            {
+              document.documentElement.style.setProperty( '--brand-color', data.brandColor );
+              document.documentElement.style.setProperty( '--accent', data.brandColor );
+            }
+          }
+        } ).catch( () => { } );
+      } )();
+    </script>
   </head>
 
   <body>
