@@ -607,19 +607,18 @@
                             const year = String( now.getFullYear() ).slice( -2 );
                             const filename = `attendance-backup-${ hour }-${ min }-${ ampm }-${ day }-${ month }-${ year }.db`;
 
-                            // Create hidden link and trigger download directly
-                            const a = document.createElement( 'a' );
-                            a.style.display = 'none';
-                            a.href = '/admin/backup/download';
-                            a.download = filename;
-                            document.body.appendChild( a );
-                            a.click();
-                            document.body.removeChild( a );
+                            // Create hidden iframe to trigger download without navigation
+                            const iframe = document.createElement( 'iframe' );
+                            iframe.style.display = 'none';
+                            iframe.src = `/admin/backup/download?filename=${ encodeURIComponent( filename ) }`;
+                            document.body.appendChild( iframe );
 
                             // Show success after short delay
                             setTimeout( () =>
                             {
                                 showAppModal( 'Backup download started! 🎉', 'success' );
+                                // Remove iframe after download starts
+                                setTimeout( () => document.body.removeChild( iframe ), 2000 );
                             }, 300 );
                         }
                         catch ( err )

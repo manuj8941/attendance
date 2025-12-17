@@ -2076,6 +2076,9 @@ app.get( '/admin/backup/download', requireOwner, async ( req, res ) =>
 {
     try
     {
+        // Get custom filename from query parameter
+        const customFilename = req.query.filename || 'attendance-backup.db';
+
         if ( useTurso )
         {
             // For Turso, export the cloud database to memory then stream it
@@ -2149,7 +2152,7 @@ app.get( '/admin/backup/download', requireOwner, async ( req, res ) =>
 
             // Set headers for download
             res.setHeader( 'Content-Type', 'application/octet-stream' );
-            res.setHeader( 'Content-Disposition', 'attachment; filename="attendance-backup.db"' );
+            res.setHeader( 'Content-Disposition', `attachment; filename="${ customFilename }"` );
             res.setHeader( 'Content-Length', fileBuffer.length );
 
             // Send buffer
@@ -2173,7 +2176,7 @@ app.get( '/admin/backup/download', requireOwner, async ( req, res ) =>
 
             // Set headers for download
             res.setHeader( 'Content-Type', 'application/octet-stream' );
-            res.setHeader( 'Content-Disposition', 'attachment; filename="attendance-backup.db"' );
+            res.setHeader( 'Content-Disposition', `attachment; filename="${ customFilename }"` );
             res.setHeader( 'Content-Length', fileBuffer.length );
 
             // Send buffer
