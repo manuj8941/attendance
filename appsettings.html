@@ -607,21 +607,20 @@
                             const year = String( now.getFullYear() ).slice( -2 );
                             const filename = `attendance-backup-${ hour }-${ min }-${ ampm }-${ day }-${ month }-${ year }.db`;
 
-                            const res = await fetch( '/admin/backup/download' );
-                            if ( !res.ok ) throw new Error( 'Failed to download backup' );
-
-                            const blob = await res.blob();
-                            const url = window.URL.createObjectURL( blob );
+                            // Create hidden link and trigger download directly
                             const a = document.createElement( 'a' );
                             a.style.display = 'none';
-                            a.href = url;
+                            a.href = '/admin/backup/download';
                             a.download = filename;
                             document.body.appendChild( a );
                             a.click();
-                            window.URL.revokeObjectURL( url );
                             document.body.removeChild( a );
 
-                            showAppModal( 'Backup downloaded successfully! 🎉', 'success' );
+                            // Show success after short delay
+                            setTimeout( () =>
+                            {
+                                showAppModal( 'Backup download started! 🎉', 'success' );
+                            }, 300 );
                         }
                         catch ( err )
                         {
