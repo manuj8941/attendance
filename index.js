@@ -2078,9 +2078,10 @@ app.get( '/admin/backup/download', requireOwner, async ( req, res ) =>
     {
         if ( useTurso )
         {
-            // For Turso, export the cloud database to a local SQLite file
+            // For Turso, export the cloud database to memory then stream it
             const sqlite3 = require( 'sqlite3' ).verbose();
-            const backupPath = path.join( __dirname, `attendance-backup-${ Date.now() }.db` );
+            const os = require( 'os' );
+            const backupPath = path.join( os.tmpdir(), `attendance-backup-${ Date.now() }.db` );
             const backupDb = new sqlite3.Database( backupPath );
 
             console.log( `Creating Turso backup for ${ req.session.user.name }...` );
@@ -2140,24 +2141,19 @@ app.get( '/admin/backup/download', requireOwner, async ( req, res ) =>
 
             console.log( `${ req.session.user.name } downloaded Turso database backup` );
 
-            // Send file for download
-            res.download( backupPath, 'attendance-backup.db', ( err ) =>
-            {
-                // Clean up temp file after download
-                if ( fs.existsSync( backupPath ) )
-                {
-                    fs.unlinkSync( backupPath );
-                }
+            // Read file into buffer and send as response
+            const fileBuffer = fs.readFileSync( backupPath );
 
-                if ( err )
-                {
-                    console.error( 'Error downloading backup:', err );
-                    if ( !res.headersSent )
-                    {
-                        res.status( 500 ).json( { success: false, message: 'Failed to download backup.' } );
-                    }
-                }
-            } );
+            // Clean up temp file immediately
+            fs.unlinkSync( backupPath );
+
+            // Set headers for download
+            res.setHeader( 'Content-Type', 'application/octet-stream' );
+            res.setHeader( 'Content-Disposition', 'attachment; filename="attendance-backup.db"' );
+            res.setHeader( 'Content-Length', fileBuffer.length );
+
+            // Send buffer
+            res.send( fileBuffer );
         }
         else
         {
@@ -2172,18 +2168,16 @@ app.get( '/admin/backup/download', requireOwner, async ( req, res ) =>
 
             console.log( `${ req.session.user.name } downloaded database backup` );
 
-            // Send file for download
-            res.download( dbPath, 'attendance-backup.db', ( err ) =>
-            {
-                if ( err )
-                {
-                    console.error( 'Error downloading backup:', err );
-                    if ( !res.headersSent )
-                    {
-                        res.status( 500 ).json( { success: false, message: 'Failed to download backup.' } );
-                    }
-                }
-            } );
+            // Read file into buffer and send as response
+            const fileBuffer = fs.readFileSync( dbPath );
+
+            // Set headers for download
+            res.setHeader( 'Content-Type', 'application/octet-stream' );
+            res.setHeader( 'Content-Disposition', 'attachment; filename="attendance-backup.db"' );
+            res.setHeader( 'Content-Length', fileBuffer.length );
+
+            // Send buffer
+            res.send( fileBuffer );
         }
     } catch ( err )
     {
