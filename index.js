@@ -2,6 +2,7 @@ require( 'dotenv' ).config( { quiet: true } );
 const express = require( 'express' );
 const path = require( 'path' );
 const session = require( 'express-session' );
+const SqliteStore = require( 'better-sqlite3-session-store' )( session );
 const fs = require( 'fs' );
 const moment = require( 'moment-timezone' );
 const { db, users, initializeDatabase } = require( './db/database' );
@@ -50,7 +51,25 @@ users.forEach( user =>
 } );
 
 // --- MIDDLEWARE ---
+// Session store configuration
+const sessionStore = useTurso
+    ? new SqliteStore( {
+        client: require( 'better-sqlite3' )( path.join( require( 'os' ).tmpdir(), 'sessions.db' ) ),
+        expired: {
+            clear: true,
+            intervalMs: 900000 // 15 minutes
+        }
+    } )
+    : new SqliteStore( {
+        client: require( 'better-sqlite3' )( path.join( __dirname, 'sessions.db' ) ),
+        expired: {
+            clear: true,
+            intervalMs: 900000
+        }
+    } );
+
 app.use( session( {
+    store: sessionStore,
     secret: process.env.SESSION_SECRET || 'fallback_dev_secret_change_in_production',
     resave: false,
     saveUninitialized: false,
